@@ -1,0 +1,593 @@
+{
+  "version": "1.0.0",
+  "scopedPackageInstallation": false,
+  "language": "csharp",
+  "snippets": [
+
+    {
+      "prefix": "udon-behaviour",
+      "body": [
+        "using UdonSharp;",
+        "using UnityEngine;",
+        "using VRC.SDKBase;",
+        "using VRC.Udon;",
+        "",
+        "public class ${1:MyBehaviour} : UdonSharpBehaviour",
+        "{",
+        "    $0",
+        "}"
+      ],
+      "description": "Basic UdonSharpBehaviour template"
+    },
+
+    {
+      "prefix": "udon-behaviour-manual",
+      "body": [
+        "using UdonSharp;",
+        "using UnityEngine;",
+        "using VRC.SDKBase;",
+        "using VRC.Udon;",
+        "",
+        "[UdonBehaviourSyncMode(BehaviourSyncMode.Manual)]",
+        "public class ${1:MyBehaviour} : UdonSharpBehaviour",
+        "{",
+        "    [UdonSynced] private ${2:int} _${3:syncedValue};",
+        "",
+        "    void Start()",
+        "    {",
+        "        $0",
+        "    }",
+        "",
+        "    public override void OnDeserialization()",
+        "    {",
+        "        // Called when synced data arrives",
+        "    }",
+        "",
+        "    public override void OnPreSerialization()",
+        "    {",
+        "        // Called before data is sent",
+        "    }",
+        "}"
+      ],
+      "description": "UdonSharpBehaviour with Manual sync mode"
+    },
+
+    {
+      "prefix": "udon-behaviour-continuous",
+      "body": [
+        "using UdonSharp;",
+        "using UnityEngine;",
+        "using VRC.SDKBase;",
+        "using VRC.Udon;",
+        "",
+        "[UdonBehaviourSyncMode(BehaviourSyncMode.Continuous)]",
+        "public class ${1:MyBehaviour} : UdonSharpBehaviour",
+        "{",
+        "    [UdonSynced(UdonSyncMode.Smooth)] public Vector3 syncedPosition;",
+        "",
+        "    $0",
+        "}"
+      ],
+      "description": "UdonSharpBehaviour with Continuous sync mode"
+    },
+
+    {
+      "prefix": "udon-field-callback",
+      "body": [
+        "[UdonSynced, FieldChangeCallback(nameof(${1:MyProperty}))]",
+        "private ${2:bool} _${3:myField};",
+        "",
+        "public ${2:bool} ${1:MyProperty}",
+        "{",
+        "    set",
+        "    {",
+        "        _${3:myField} = value;",
+        "        $0",
+        "    }",
+        "    get => _${3:myField};",
+        "}"
+      ],
+      "description": "UdonSynced field with FieldChangeCallback property"
+    },
+
+    {
+      "prefix": "udon-interact",
+      "body": [
+        "public override void Interact()",
+        "{",
+        "    $0",
+        "}"
+      ],
+      "description": "VRChat Interact event override"
+    },
+
+    {
+      "prefix": "udon-player-joined",
+      "body": [
+        "public override void OnPlayerJoined(VRCPlayerApi player)",
+        "{",
+        "    $0",
+        "}"
+      ],
+      "description": "OnPlayerJoined event override"
+    },
+
+    {
+      "prefix": "udon-player-left",
+      "body": [
+        "public override void OnPlayerLeft(VRCPlayerApi player)",
+        "{",
+        "    if (!Utilities.IsValid(player)) return;",
+        "    $0",
+        "}"
+      ],
+      "description": "OnPlayerLeft event override (with IsValid guard)"
+    },
+
+    {
+      "prefix": "udon-ownership-transfer",
+      "body": [
+        "public override void OnOwnershipTransferred(VRCPlayerApi player)",
+        "{",
+        "    if (Networking.IsOwner(gameObject))",
+        "    {",
+        "        // We are now the owner",
+        "        $0",
+        "    }",
+        "}"
+      ],
+      "description": "OnOwnershipTransferred event override"
+    },
+
+    {
+      "prefix": "udon-deserialization",
+      "body": [
+        "public override void OnDeserialization()",
+        "{",
+        "    $0",
+        "}"
+      ],
+      "description": "OnDeserialization event override"
+    },
+
+    {
+      "prefix": "udon-pickup-events",
+      "body": [
+        "public override void OnPickup()",
+        "{",
+        "    $0",
+        "}",
+        "",
+        "public override void OnDrop()",
+        "{",
+        "    ",
+        "}",
+        "",
+        "public override void OnPickupUseDown()",
+        "{",
+        "    ",
+        "}",
+        "",
+        "public override void OnPickupUseUp()",
+        "{",
+        "    ",
+        "}"
+      ],
+      "description": "All VRCPickup event overrides"
+    },
+
+    {
+      "prefix": "udon-station-events",
+      "body": [
+        "public override void OnStationEntered(VRCPlayerApi player)",
+        "{",
+        "    $0",
+        "}",
+        "",
+        "public override void OnStationExited(VRCPlayerApi player)",
+        "{",
+        "    ",
+        "}"
+      ],
+      "description": "VRCStation enter/exit event overrides"
+    },
+
+    {
+      "prefix": "udon-network-event",
+      "body": [
+        "SendCustomNetworkEvent(NetworkEventTarget.${1|All,Owner|}, nameof(${2:MethodName}));"
+      ],
+      "description": "Send a custom network event"
+    },
+
+    {
+      "prefix": "udon-delayed-event",
+      "body": [
+        "SendCustomEventDelayedSeconds(nameof(${1:MethodName}), ${2:1.0f}, EventTiming.${3|Update,LateUpdate|});"
+      ],
+      "description": "Send a delayed custom event (seconds)"
+    },
+
+    {
+      "prefix": "udon-delayed-frames",
+      "body": [
+        "SendCustomEventDelayedFrames(nameof(${1:MethodName}), ${2:1}, EventTiming.${3|Update,LateUpdate|});"
+      ],
+      "description": "Send a delayed custom event (frames)"
+    },
+
+    {
+      "prefix": "udon-set-owner",
+      "body": [
+        "Networking.SetOwner(Networking.LocalPlayer, gameObject);"
+      ],
+      "description": "Take ownership of the current GameObject"
+    },
+
+    {
+      "prefix": "udon-is-owner",
+      "body": [
+        "if (Networking.IsOwner(gameObject))",
+        "{",
+        "    $0",
+        "}"
+      ],
+      "description": "Check if local player owns this object"
+    },
+
+    {
+      "prefix": "udon-request-serialization",
+      "body": [
+        "RequestSerialization();"
+      ],
+      "description": "Trigger manual network sync"
+    },
+
+    {
+      "prefix": "udon-get-players",
+      "body": [
+        "VRCPlayerApi[] _players = new VRCPlayerApi[${1:80}];",
+        "",
+        "void ${2:IteratePlayers}()",
+        "{",
+        "    int count = VRCPlayerApi.GetPlayerCount();",
+        "    VRCPlayerApi.GetPlayers(_players);",
+        "    for (int i = 0; i < count; i++)",
+        "    {",
+        "        if (!Utilities.IsValid(_players[i])) continue;",
+        "        $0",
+        "    }",
+        "}"
+      ],
+      "description": "Get and iterate all players (non-allocating pattern)"
+    },
+
+    {
+      "prefix": "udon-local-player",
+      "body": [
+        "VRCPlayerApi localPlayer = Networking.LocalPlayer;"
+      ],
+      "description": "Get local VRCPlayerApi"
+    },
+
+    {
+      "prefix": "udon-teleport",
+      "body": [
+        "Networking.LocalPlayer.TeleportTo(",
+        "    ${1:targetTransform}.position,",
+        "    ${1:targetTransform}.rotation,",
+        "    VRC_SceneDescriptor.SpawnOrientation.Default,",
+        "    ${2:false});"
+      ],
+      "description": "Teleport local player to a transform"
+    },
+
+    {
+      "prefix": "udon-locomotion",
+      "body": [
+        "VRCPlayerApi p = Networking.LocalPlayer;",
+        "p.SetWalkSpeed(${1:2f});",
+        "p.SetRunSpeed(${2:4f});",
+        "p.SetStrafeSpeed(${3:2f});",
+        "p.SetJumpImpulse(${4:3f});",
+        "p.SetGravityStrength(${5:1f});"
+      ],
+      "description": "Set all locomotion properties for local player"
+    },
+
+    {
+      "prefix": "udon-voice",
+      "body": [
+        "// Voice settings for player ${1:player}",
+        "${1:player}.SetVoiceGain(${2:15f});              // dB 0-24, default 15",
+        "${1:player}.SetVoiceDistanceNear(${3:0f});       // meters, keep at 0",
+        "${1:player}.SetVoiceDistanceFar(${4:25f});       // meters, default 25",
+        "${1:player}.SetVoiceVolumetricRadius(${5:0f});   // meters, keep at 0",
+        "${1:player}.SetVoiceLowpass(${6:true});"
+      ],
+      "description": "Set all voice properties for a player"
+    },
+
+    {
+      "prefix": "udon-tracking-data",
+      "body": [
+        "VRCPlayerApi.TrackingData ${1:trackData} = Networking.LocalPlayer.GetTrackingData(",
+        "    VRCPlayerApi.TrackingDataType.${2|Head,LeftHand,RightHand,Origin|});",
+        "Vector3 ${3:pos} = ${1:trackData}.position;",
+        "Quaternion ${4:rot} = ${1:trackData}.rotation;"
+      ],
+      "description": "Get player tracking data (head, hands, origin)"
+    },
+
+    {
+      "prefix": "udon-input-jump",
+      "body": [
+        "public override void InputJump(bool value, UdonInputEventArgs args)",
+        "{",
+        "    if (value) // button pressed",
+        "    {",
+        "        $0",
+        "    }",
+        "}"
+      ],
+      "description": "InputJump event override"
+    },
+
+    {
+      "prefix": "udon-input-use",
+      "body": [
+        "public override void InputUse(bool value, UdonInputEventArgs args)",
+        "{",
+        "    if (value) // trigger pressed",
+        "    {",
+        "        $0",
+        "    }",
+        "}"
+      ],
+      "description": "InputUse event override"
+    },
+
+    {
+      "prefix": "udon-input-axis",
+      "body": [
+        "public override void InputMoveHorizontal(float value, UdonInputEventArgs args)",
+        "{",
+        "    // value: -1 (left) to 1 (right)",
+        "    $0",
+        "}",
+        "",
+        "public override void InputMoveVertical(float value, UdonInputEventArgs args)",
+        "{",
+        "    // value: -1 (back) to 1 (forward)",
+        "    ",
+        "}"
+      ],
+      "description": "InputMove axis event overrides"
+    },
+
+    {
+      "prefix": "udon-object-pool",
+      "body": [
+        "[SerializeField] private VRCObjectPool _pool;",
+        "",
+        "void Spawn()",
+        "{",
+        "    GameObject obj = _pool.TryToSpawn();",
+        "    if (obj == null) return; // pool empty",
+        "    $0",
+        "}",
+        "",
+        "void Return(GameObject obj)",
+        "{",
+        "    _pool.Return(obj);",
+        "}"
+      ],
+      "description": "VRCObjectPool spawn and return pattern"
+    },
+
+    {
+      "prefix": "udon-object-sync",
+      "body": [
+        "[SerializeField] private VRCObjectSync _objSync;",
+        "",
+        "void TeleportObject(Transform target)",
+        "{",
+        "    _objSync.FlagDiscontinuity(); // prevents interpolation on teleport",
+        "    _objSync.TeleportTo(target);",
+        "}"
+      ],
+      "description": "VRCObjectSync teleport with discontinuity flag"
+    },
+
+    {
+      "prefix": "udon-string-load",
+      "body": [
+        "using VRC.SDK3.Data;",
+        "",
+        "[SerializeField] private VRCUrl _url;",
+        "",
+        "void Start()",
+        "{",
+        "    VRCStringDownloader.LoadUrl(_url, (VRC.Udon.Common.Interfaces.IUdonEventReceiver)this);",
+        "}",
+        "",
+        "public override void OnStringLoadSuccess(IVRCStringDownload result)",
+        "{",
+        "    string data = result.Result;",
+        "    $0",
+        "}",
+        "",
+        "public override void OnStringLoadError(IVRCStringDownload result)",
+        "{",
+        "    Debug.LogError($\"String load error: {result.Error}\");",
+        "}"
+      ],
+      "description": "VRCStringDownloader load pattern"
+    },
+
+    {
+      "prefix": "udon-json-parse",
+      "body": [
+        "using VRC.SDK3.Data;",
+        "",
+        "if (VRCJson.TryDeserializeFromJson(${1:jsonString}, out DataToken token))",
+        "{",
+        "    DataDictionary dict = token.DataDictionary;",
+        "    $0",
+        "}",
+        "else",
+        "{",
+        "    Debug.LogWarning(\"JSON parse failed\");",
+        "}"
+      ],
+      "description": "VRCJson deserialization pattern"
+    },
+
+    {
+      "prefix": "udon-editor-script",
+      "body": [
+        "#if !COMPILER_UDONSHARP && UNITY_EDITOR",
+        "using UnityEditor;",
+        "using UdonSharpEditor;",
+        "",
+        "[CustomEditor(typeof(${1:MyBehaviour}))]",
+        "public class ${1:MyBehaviour}Editor : Editor",
+        "{",
+        "    public override void OnInspectorGUI()",
+        "    {",
+        "        if (UdonSharpGUI.DrawDefaultUdonSharpBehaviourHeader(target)) return;",
+        "        $0",
+        "    }",
+        "}",
+        "#endif"
+      ],
+      "description": "Custom inspector for UdonSharpBehaviour"
+    },
+
+    {
+      "prefix": "udon-recursive",
+      "body": [
+        "[RecursiveMethod]",
+        "private ${1:int} ${2:Factorial}(${3:int input})",
+        "{",
+        "    $0",
+        "}"
+      ],
+      "description": "Method marked for recursive calls"
+    },
+
+    {
+      "prefix": "udon-is-valid",
+      "body": [
+        "if (!Utilities.IsValid(${1:player})) return;"
+      ],
+      "description": "Utilities.IsValid null-check guard"
+    },
+
+    {
+      "prefix": "udon-network-callable",
+      "body": [
+        "[NetworkCallable(maxEventsPerSecond: ${1:5})]",
+        "public void ${2:MyNetworkEvent}()",
+        "{",
+        "    VRCPlayerApi caller = NetworkCalling.CallingPlayer;",
+        "    $0",
+        "}"
+      ],
+      "description": "[NetworkCallable] method — callable via SendCustomNetworkEvent (SDK 3.8.1+)"
+    },
+
+    {
+      "prefix": "udon-network-callable-params",
+      "body": [
+        "[NetworkCallable(maxEventsPerSecond: ${1:5})]",
+        "public void ${2:OnReceiveData}(${3:int} ${4:value})",
+        "{",
+        "    $0",
+        "}",
+        "",
+        "// Caller:",
+        "// SendCustomNetworkEvent(NetworkEventTarget.All, nameof(${2:OnReceiveData}), ${4:value});"
+      ],
+      "description": "[NetworkCallable] method with parameters (SDK 3.8.1+)"
+    },
+
+    {
+      "prefix": "udon-ownership-request",
+      "body": [
+        "public override bool OnOwnershipRequest(VRCPlayerApi requester, VRCPlayerApi newOwner)",
+        "{",
+        "    // Return true to approve the transfer, false to deny",
+        "    $0",
+        "    return true;",
+        "}"
+      ],
+      "description": "OnOwnershipRequest — approve or deny ownership transfer"
+    },
+
+    {
+      "prefix": "udon-master-transferred",
+      "body": [
+        "public override void OnMasterTransferred(VRCPlayerApi newMaster)",
+        "{",
+        "    Debug.Log($\"New master: {newMaster.displayName}\");",
+        "    $0",
+        "}"
+      ],
+      "description": "OnMasterTransferred — fires when instance master changes"
+    },
+
+    {
+      "prefix": "udon-deserialization-result",
+      "body": [
+        "public override void OnDeserialization(DeserializationResult result)",
+        "{",
+        "    float latency      = result.receiveTime - result.sendTime;",
+        "    bool  fromStorage  = result.isFromStorage;",
+        "    $0",
+        "}"
+      ],
+      "description": "OnDeserialization with DeserializationResult timing info"
+    },
+
+    {
+      "prefix": "udon-network-calling",
+      "body": [
+        "// Inside a [NetworkCallable] method:",
+        "VRCPlayerApi caller = NetworkCalling.CallingPlayer; // null if local call",
+        "bool isNetCall      = NetworkCalling.InNetworkCall;",
+        "int  queued         = NetworkCalling.GetQueuedEvents(",
+        "    (VRC.Udon.Common.Interfaces.IUdonEventReceiver)this, \"${1:EventName}\");",
+        "int  totalQueued    = NetworkCalling.GetAllQueuedEvents();"
+      ],
+      "description": "NetworkCalling class — caller identity, queue inspection"
+    },
+
+    {
+      "prefix": "udon-network-stats",
+      "body": [
+        "using VRC.SDK3.Network;",
+        "",
+        "// Global stats",
+        "float throughput = Stats.ThroughputPercentage; // % outgoing bandwidth used",
+        "float bytesOut   = Stats.BytesOutAverage;      // rolling avg bytes/sec sent",
+        "float suffering  = Stats.Suffering;            // queued outbound message pressure",
+        "",
+        "// Per-object stats",
+        "float bps        = Stats.GetBytesPerSecondAverage(${1:gameObject});",
+        "bool  sleeping   = Stats.GetSleeping(${1:gameObject});",
+        "int   msgSize    = Stats.GetSize(${1:gameObject});"
+      ],
+      "description": "VRC.SDK3.Network.Stats — global and per-object network statistics"
+    },
+
+    {
+      "prefix": "udon-get-component-udon",
+      "body": [
+        "UdonBehaviour ${1:ub} = (UdonBehaviour)GetComponent(typeof(UdonBehaviour));"
+      ],
+      "description": "GetComponent for UdonBehaviour (generic overload not supported)"
+    }
+
+  ]
+}
