@@ -1,3 +1,337 @@
+# VIP Manager - Copilot Instructions
+
+This repository contains a VIP whitelist management system for VRChat worlds built with Unity, UdonSharp, and VRChat SDK3.
+
+## Project Overview
+
+VIP Manager is a role-based VIP and manual whitelist system for VRChat worlds that allows:
+- Dynamic role loading from Pastebin URLs
+- Manual player whitelist management with network synchronization
+- Role-based permissions (VIP access, DJ access, add/revoke players)
+- Inspector-only setup with no code modifications required by users
+
+## Technology Stack
+
+- **Unity**: Game engine for VRChat world development
+- **UdonSharp**: High-level C#-like language that compiles to Udon (VRChat's scripting system)
+- **VRChat SDK3**: VRChat's world SDK
+- **TextMeshPro**: For UI text rendering
+
+## Code Conventions
+
+### UdonSharp Constraints
+
+**CRITICAL**: UdonSharp has strict limitations compared to standard C#. Always follow these rules:
+
+1. **No Generics**: UdonSharp does not support generic types or methods
+   - Use typed array helper methods instead (e.g., `ResizeStringArray`, `ResizeBoolArray`)
+   - DO NOT use `List<T>`, `Dictionary<K,V>`, or other generic collections
+
+2. **No LINQ**: LINQ is not supported
+   - Use manual loops and array operations
+   - Example: Use `for` loops instead of `.Select()`, `.Where()`, etc.
+
+3. **Limited String Operations**:
+   - Avoid advanced string methods
+   - Use `string.IsNullOrEmpty()`, `Trim()`, `ToLowerInvariant()`, `IndexOf()`, `Substring()`, `Replace()`, `Split()`
+   - StringBuilder is available and preferred for string concatenation in loops
+
+4. **Array Constraints**:
+   - Use single-dimensional arrays only
+   - Jagged arrays cause Udon VM issues - flatten them (see `roleMembersFlat` pattern)
+   - Always initialize arrays with explicit sizes
+
+5. **No Async/Await**: All operations must be synchronous or use Unity coroutines/events
+   - Use `SendCustomEventDelayedFrames()` for deferred execution
+   - Network operations use callback methods (e.g., `OnStringLoadSuccess`)
+
+6. **Networking** (VRChat Udon Networking):
+   - Use `[UdonSynced]` attribute for synchronized variables
+   - Call `RequestSerialization()` to sync changes (manual sync mode only)
+   - Always check `Networking.IsOwner()` before modifying synced data
+   - Use `Networking.SetOwner()` to take ownership when needed
+   - Synced variables must be serializable types (primitives, Vector3, Color, string, VRCUrl, etc.)
+   - Arrays are supported but must be single-dimensional
+   - Object references (GameObjects, Components) cannot be synced
+   - Late joiners receive current synced state via `OnDeserialization()`
+   - Network events use `SendCustomNetworkEvent()` for RPC-style calls
+
+### Naming Conventions
+
+1. **Classes**: PascalCase (e.g., `VipWhitelistManager`, `VipWhitelistRow`)
+2. **Public Fields/Properties**: camelCase (e.g., `roleNames`, `maxSyncedManual`)
+3. **Private Fields**: camelCase with underscore prefix (e.g., `_cachedRoleCount`, `_lastSerializationFrame`)
+4. **Constants**: UPPER_SNAKE_CASE (e.g., `ROLE_MEMBER_CAP`, `ACCESS_CACHE_SIZE`)
+5. **Public Methods**: PascalCase (e.g., `RegisterList`, `GetRoleIndex`)
+6. **Private Methods**: PascalCase (e.g., `EnsureRoleBuffers`, `CompactSyncedManual`)
+7. **Udon Event Receivers**: Prefix with underscore for UI callbacks (e.g., `_OnAuthToggle`, `_OnRowToggled`)
+
+### Code Style
+
+1. **Attributes**:
+   - Use `[UdonBehaviourSyncMode(BehaviourSyncMode.Manual)]` on all UdonSharp classes
+   - Use `[Header("Section Name")]` to organize inspector fields
+   - Use `[Tooltip("Description")]` for user-facing inspector fields
+   - Use `[HideInInspector]` for runtime-only public fields
+
+2. **Comments**:
+   - Prefer clear code over comments
+   - Use comments to explain UdonSharp-specific workarounds or performance optimizations
+   - Document cache invalidation logic and synchronization patterns
+
+3. **Null Checks**:
+   - Always use `Utilities.IsValid(player)` for VRCPlayerApi validation
+   - Use `string.IsNullOrEmpty()` for string validation
+   - Check array bounds before accessing elements
+
+4. **Performance** (UdonSharp Performance Tips):
+   - Cache frequently accessed values (e.g., `GetLocalPlayer()` cached per-frame)
+   - Use normalized parallel arrays to avoid repeated `ToLowerInvariant()` calls
+   - Implement runtime caches for expensive lookups (see `_accessCacheKeys` pattern)
+   - Batch array operations to reduce allocation overhead
+   - Avoid `Update()` when possible; use events or `SendCustomEventDelayedFrames()`
+   - Pool objects instead of instantiating/destroying frequently
+   - Cache component references; avoid repeated `GetComponent()` calls
+   - Minimize string concatenation in hot paths; use `StringBuilder` for loops
+
+### Editor Scripts
+
+1. **Conditional Compilation**: Wrap Unity Editor code with:
+   ```csharp
+   #if !COMPILER_UDONSHARP && UNITY_EDITOR
+   // Editor-only code here
+   #endif
+   ```
+
+2. **Custom Editors**: Use `[CustomEditor(typeof(ClassName))]` for inspector customization
+3. **Reorderable Lists**: Use `UnityEditorInternal.ReorderableList` for array management in inspector
+
+## UdonSharp & VRChat API
+
+### VRCPlayerApi
+
+- Use `Networking.LocalPlayer` to get the local player
+- Use `VRCPlayerApi.GetPlayers(VRCPlayerApi[] players)` to populate an array with all players (returns int count)
+  - Example: `VRCPlayerApi[] players = new VRCPlayerApi[100]; int count = VRCPlayerApi.GetPlayers(players);`
+- Track players using `OnPlayerJoined()` and `OnPlayerLeft()` events for dynamic player lists
+- Always validate with `Utilities.IsValid(player)` before accessing player properties
+- Common properties: `displayName`, `playerId`, `isLocal`, `isMaster`
+- Player positions: `GetPosition()`, `GetRotation()`, `GetBonePosition()`, `GetBoneRotation()`
+- Player state: `IsUserInVR()`, `GetRunSpeed()`, `GetWalkSpeed()`, `GetJumpImpulse()`
+
+### Event Execution Order
+
+Common Udon event execution order:
+1. `Start()` - Called once when the script is initialized
+2. `OnPlayerJoined()` - Called when any player joins
+3. `OnPlayerLeft()` - Called when any player leaves
+4. `OnOwnershipTransferred()` - Called when ownership changes
+5. `OnDeserialization()` - Called when synced data is received
+6. `Update()` - Called every frame (use sparingly)
+
+### String and Data Loading
+
+- Use `VRCStringDownloader.LoadUrl()` for loading remote text/JSON
+- Implement `OnStringLoadSuccess()` and `OnStringLoadError()` callbacks
+- Use `VRCImageDownloader.LoadImage()` for loading remote images
+- URLs must meet VRChat's remote URL requirements (see [External URLs docs](https://creators.vrchat.com/worlds/udon/external-urls))
+- Approved domains include: GitHub (raw.githubusercontent.com), Pastebin (pastebin.com/raw), and others
+- World creators can request additional URL whitelisting through VRChat's support system
+- Data containers: Use `DataDictionary` and `DataList` for complex data (UdonSharp 1.x+)
+
+### UI Events
+
+- Wire UI events via UnityEvent in inspector (Button.onClick, Toggle.onValueChanged, etc.)
+- Use `SendCustomEvent("MethodName")` pattern for UI callbacks
+- For Toggles: Use `SetIsOnWithoutNotify()` to update state without triggering events
+- TextMeshPro is recommended over legacy Unity UI Text
+
+## Architecture Patterns
+
+### Data Synchronization
+
+- **Manual Serialization**: Control when data syncs with `RequestSerialization()`
+- **Rate Limiting**: Enforce minimum frame intervals between serializations (see `MIN_SERIALIZATION_FRAME_INTERVAL`)
+- **Network Clog Detection**: Check `Networking.IsClogged` before requesting serialization
+- **Dirty Flags**: Use flags (`manualDirty`, `djSystemDirty`) to track pending changes
+- **Sync Modes**: Use `BehaviourSyncMode.Manual` for controlled serialization or `BehaviourSyncMode.Continuous` for automatic sync
+- **Ownership Transfer**: Only the owner can modify synced variables; use `Networking.SetOwner()` to transfer ownership
+- **Late Joiners**: Implement `OnDeserialization()` to handle incoming synced data for late joiners
+- **Bandwidth**: Keep synced data minimal; large arrays or frequent updates can cause network congestion
+
+### Caching Strategy
+
+- **Player Name Cache**: Cache `playerId -> normalizedName` mappings to avoid repeated `displayName` access
+- **Access Cache**: Cache `IsAuthed` and `IsDj` results per normalized name
+- **Role Index Cache**: Cache role membership lookups
+- **Cache Invalidation**: Clear caches when role lists or synced arrays change
+
+### Array Management
+
+- **Flattened Arrays**: Use `offset = roleIndex * CAPACITY + memberIndex` pattern
+- **Parallel Arrays**: Maintain normalized arrays alongside original data (e.g., `syncedManual` + `syncedManualNorm`)
+- **Compaction**: Remove null/duplicate entries to maintain data integrity
+
+## Testing and Debugging
+
+1. **Debug Logging**:
+   - Use the centralized `DebugLog()` method
+   - Respect the `enableDebugLogs` flag
+   - Use colored output with `ColorToHex()` helper
+   - Throttle repeated logs to avoid console spam
+   - Use `Debug.Log()`, `Debug.LogWarning()`, `Debug.LogError()` for different severity levels
+
+2. **Testing in VRChat**:
+   - Test with multiple players to verify network synchronization
+   - Test ownership transfer scenarios
+   - Verify UI updates on player join/leave events
+   - Test role permission inheritance
+   - Test as both master and non-master clients
+   - Test late-join scenarios to ensure synced state is received correctly
+
+3. **Networking Debugging**:
+   - Use VRChat's built-in Network Stats (Ctrl+N in-game) to monitor bandwidth
+   - Check `Networking.IsClogged` to detect network congestion
+   - Log `Networking.GetOwner()` to verify ownership state
+   - Use `OnPreSerialization()` and `OnDeserialization()` for sync debugging
+   - Monitor serialization frequency to avoid exceeding rate limits
+
+4. **Common Issues**:
+   - Object array EXTERN errors → flatten to single-dimensional arrays
+   - Null reference on networked callbacks → check `Utilities.IsValid()`
+   - UI not updating → ensure `NotifyLists()` is called after data changes
+   - Serialization failures → verify ownership and check `IsClogged`
+   - Desynced state → ensure `OnDeserialization()` updates all dependent caches/UI
+   - Ownership conflicts → implement proper ownership transfer logic
+
+## Documentation Standards
+
+1. **README.md**: Inspector-focused user documentation (no code required by end users)
+2. **Code Comments**: Explain UdonSharp constraints, optimization rationale, and non-obvious logic
+3. **Inspector Tooltips**: User-friendly descriptions for all public configuration fields
+
+## Common Tasks
+
+### Adding a New Role Permission
+
+1. Add a new `bool[]` field (e.g., `roleCanNewPermission`)
+2. Add corresponding inspector property in `VipWhitelistManagerEditor.cs`
+3. Update `SyncArraySizes()`, `onAddCallback`, and `onRemoveCallback` in the editor
+4. Add permission check method (e.g., `GetRoleCanNewPermission(int idx)`)
+5. Update role parsing and permission evaluation logic
+
+### Adding a New Synced Variable
+
+1. Add `[UdonSynced]` attribute to the field
+2. Mark as dirty when modified (create new dirty flag if needed)
+3. Call `TrySerializeManualChanges()` after modification
+4. Update `OnDeserialization()` to handle incoming changes
+5. Update cache invalidation logic if needed
+
+### Optimizing Performance
+
+1. **Reduce String Allocations**: Use cached normalized strings
+2. **Batch Operations**: Process multiple items in single loop
+3. **Cache Lookups**: Store frequently accessed results
+4. **Defer Updates**: Use `SendCustomEventDelayedFrames()` for non-critical updates
+5. **Minimize Serialization**: Batch changes before requesting serialization
+
+## Security Considerations
+
+1. **Read-Only Roles**: Respect `roleCanReadOnly` flag to prevent unauthorized edits
+2. **Super Admin**: Always validate super admin status before granting elevated permissions
+3. **Ownership Validation**: Check `Networking.IsOwner()` before writing synced data
+4. **Initial Owner**: Record first owner to grant persistent management permissions
+
+## File Structure
+
+```
+/
+├── VipWhitelistManager.cs      # Main manager script with role/auth logic
+├── VipWhitelistUI.cs           # UI list controller
+├── VipWhitelistRow.cs          # Individual player row controller
+├── Editor/
+│   └── VipWhitelistManagerEditor.cs  # Custom inspector for manager
+├── Template.prefab             # UI row template
+├── VIP Manager.prefab          # Manager prefab
+├── VIP UI.prefab               # UI list prefab
+└── README.md                   # User documentation
+```
+
+## Build and Deploy
+
+This package is distributed as a Unity package (.unitypackage):
+1. Import into Unity project with VRChat SDK3 and UdonSharp
+2. Drag prefabs into scene
+3. Configure roles and permissions in inspector
+4. Upload world to VRChat
+
+No build system or automated tests are present - testing happens in VRChat client.
+
+## Official Documentation References
+
+### UdonSharp Documentation
+- [UdonSharp Overview](https://udonsharp.docs.vrchat.com/)
+- [VRChat API](https://udonsharp.docs.vrchat.com/vrchat-api)
+- [UdonSharp Features](https://udonsharp.docs.vrchat.com/udonsharp)
+- [Editor Scripting](https://udonsharp.docs.vrchat.com/editor-scripting)
+- [Examples](https://udonsharp.docs.vrchat.com/examples)
+- [Performance Tips](https://udonsharp.docs.vrchat.com/random-tips-%26-performance-pointers)
+- [Networking Tips & Tricks](https://udonsharp.docs.vrchat.com/networking-tips-%26-tricks)
+- [Class Exposure Tree](https://udonsharp.docs.vrchat.com/class-exposure-tree)
+
+### VRChat Udon Documentation
+- [UdonSharp Guide](https://creators.vrchat.com/worlds/udon/udonsharp/)
+- [UdonSharp Attributes](https://creators.vrchat.com/worlds/udon/udonsharp/attributes)
+- [Class Exposure Tree](https://creators.vrchat.com/worlds/udon/udonsharp/class-exposure-tree)
+- [Configuration](https://creators.vrchat.com/worlds/udon/udonsharp/configuration)
+- [Editor Scripting](https://creators.vrchat.com/worlds/udon/udonsharp/editorscripting)
+- [Performance Tips](https://creators.vrchat.com/worlds/udon/udonsharp/performance-tips)
+
+### Networking
+- [Networking Overview](https://creators.vrchat.com/worlds/udon/networking/)
+- [Network Variables](https://creators.vrchat.com/worlds/udon/networking/variables)
+- [Network Events](https://creators.vrchat.com/worlds/udon/networking/events)
+- [Ownership](https://creators.vrchat.com/worlds/udon/networking/ownership)
+- [Late Joiners](https://creators.vrchat.com/worlds/udon/networking/late-joiners)
+- [Network Components](https://creators.vrchat.com/worlds/udon/networking/network-components)
+- [Network Details](https://creators.vrchat.com/worlds/udon/networking/network-details)
+- [Network ID Utility](https://creators.vrchat.com/worlds/udon/networking/network-id-utility)
+- [Network Stats](https://creators.vrchat.com/worlds/udon/networking/network-stats)
+- [Performance](https://creators.vrchat.com/worlds/udon/networking/performance)
+- [Debugging](https://creators.vrchat.com/worlds/udon/networking/debugging)
+- [Compatibility](https://creators.vrchat.com/worlds/udon/networking/compatibility)
+
+### Players
+- [Players Overview](https://creators.vrchat.com/worlds/udon/players/)
+- [Getting Players](https://creators.vrchat.com/worlds/udon/players/getting-players)
+- [Player Audio](https://creators.vrchat.com/worlds/udon/players/player-audio)
+- [Player Avatar Scaling](https://creators.vrchat.com/worlds/udon/players/player-avatar-scaling)
+- [Player Collisions](https://creators.vrchat.com/worlds/udon/players/player-collisions)
+- [Player Forces](https://creators.vrchat.com/worlds/udon/players/player-forces)
+- [Player Positions](https://creators.vrchat.com/worlds/udon/players/player-positions)
+
+### Data & Resources
+- [Event Execution Order](https://creators.vrchat.com/worlds/udon/event-execution-order)
+- [Debugging Udon Projects](https://creators.vrchat.com/worlds/udon/debugging-udon-projects)
+- [Data Containers](https://creators.vrchat.com/worlds/udon/data-containers/)
+- [Data Dictionaries](https://creators.vrchat.com/worlds/udon/data-containers/data-dictionaries/)
+- [Data Lists](https://creators.vrchat.com/worlds/udon/data-containers/data-lists/)
+- [Data Tokens](https://creators.vrchat.com/worlds/udon/data-containers/data-tokens/)
+- [VRCJSON](https://creators.vrchat.com/worlds/udon/data-containers/vrcjson)
+- [External URLs](https://creators.vrchat.com/worlds/udon/external-urls)
+- [String Loading](https://creators.vrchat.com/worlds/udon/string-loading)
+- [Image Loading](https://creators.vrchat.com/worlds/udon/image-loading)
+- [Input Events](https://creators.vrchat.com/worlds/udon/input-events)
+- [UI Events](https://creators.vrchat.com/worlds/udon/ui-events)
+
+### Persistence
+- [Persistence Overview](https://creators.vrchat.com/worlds/udon/persistence/)
+- [Player Data](https://creators.vrchat.com/worlds/udon/persistence/player-data)
+- [Player Object](https://creators.vrchat.com/worlds/udon/persistence/player-object)
+
+
+
 # GitHub Copilot — UdonSharp World & Script Development
 
 ## What Is UdonSharp?
@@ -520,33 +854,3 @@ Unity UI `OnClick` / `OnValueChanged` events can target these directly (no UdonB
 - https://creators.vrchat.com/worlds/udon/networking/compatibility
 - https://creators.vrchat.com/worlds/udon/networking/debugging
 - https://creators.vrchat.com/worlds/udon/networking/network-id-utility
-- https://creators.vrchat.com/worlds/udon/vrc-graphics/
-- https://creators.vrchat.com/worlds/udon/vrc-graphics/asyncgpureadback
-- https://creators.vrchat.com/worlds/udon/vrc-graphics/vrc-camera-settings
-- https://creators.vrchat.com/worlds/udon/vrc-graphics/vrc-quality-settings
-- https://creators.vrchat.com/worlds/udon/vrc-graphics/vrchat-shader-globals
-- https://creators.vrchat.com/worlds/udon/world-debug-views
-- https://creators.vrchat.com/worlds/udon/using-build-test
-- https://creators.vrchat.com/worlds/udon/vm-and-assembly/
-- https://creators.vrchat.com/worlds/layers
-- https://creators.vrchat.com/worlds/whitelisted-world-components
-- https://creators.vrchat.com/worlds/udon/video-players/
-- https://creators.vrchat.com/worlds/udon/midi/
-- https://creators.vrchat.com/worlds/udon/midi/realtime-midi
-- https://creators.vrchat.com/worlds/udon/midi/midi-playback
-- https://creators.vrchat.com/worlds/components/
-- https://creators.vrchat.com/worlds/components/vrc_scenedescriptor
-- https://creators.vrchat.com/worlds/components/vrc_objectsync
-- https://creators.vrchat.com/worlds/components/vrc_pickup
-- https://creators.vrchat.com/worlds/components/vrc_station
-- https://creators.vrchat.com/worlds/components/vrc_mirrorreflection
-- https://creators.vrchat.com/worlds/components/vrc_spatialaudiosource
-- https://creators.vrchat.com/worlds/components/vrc_avatarpedestal
-- https://creators.vrchat.com/worlds/components/vrc_uishape
-- https://creators.vrchat.com/worlds/components/vrc_portalmarker
-- https://creators.vrchat.com/worlds/creating-your-first-world
-- https://creators.vrchat.com/worlds/sdk-prefabs
-- https://creators.vrchat.com/worlds/supported-assets
-- https://creators.vrchat.com/worlds/submitting-a-world-to-be-made-public
-- https://creators.vrchat.com/worlds/clientsim/
-- https://creators.vrchat.com/worlds/items

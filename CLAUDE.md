@@ -37,6 +37,9 @@ using VRC.Udon;
 11. **Cache `GetComponent<T>()` in `Start()`** — never call repeatedly in `Update()`.
 12. **Always initialize synced arrays** — `[UdonSynced] private int[] _arr = new int[0];`. Uninitialized synced arrays break all syncing on the behaviour.
 13. **Do not use `IsMaster` for security** — use `IsInstanceOwner` or proper ownership logic instead.
+14. **Items (layer 3) appear as `null` in Udon** — if any physics callback (OnTriggerEnter, Physics.OverlapSphere, etc.) returns an Item object, accessing it **throws an exception and halts the entire UdonBehaviour**. Always exclude layer 3 with a LayerMask, or check with `Utilities.IsValid()` before using the result.
+15. **`VRCShader.SetGlobal*` property names must start with `_Udon`** (or be the literal `_AudioTexture`) — any other name is silently rejected. The `PropertyToID` call still returns an ID; the set just does nothing.
+16. **`VRCAsyncGPUReadback`** — pass `(IUdonEventReceiver)this` instead of a delegate. Receive results in `OnAsyncGpuReadbackComplete`. Use `TryGetData()` instead of `GetData()`.
 
 ---
 
@@ -171,6 +174,14 @@ using UdonSharpEditor;
 3. Check logs at `C:\Users\<Name>\AppData\LocalLow\VRChat\VRChat\`.
 4. Search for "halted" in log to find the halted UdonBehaviour.
 5. UdonSharp's runtime exception watcher maps errors back to C# line numbers in Unity console.
+
+### Fast Iteration with Build & Reload
+
+Launch your client once with:
+```
+VRChat.exe --watch-worlds --profile=0 --no-vr --enable-debug-gui --enable-sdk-log-levels --enable-udon-debug-logging
+```
+Then set **Number of Clients** to `0` in the SDK Builder tab and press **Build & Test** (becomes "Build & Reload") — rebuilds and moves all open clients into the new instance without restarting VRChat.
 
 ---
 
