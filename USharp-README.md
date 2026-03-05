@@ -31,6 +31,13 @@ docs/
   14-build-test.md          ← Build & Test, Build & Reload, multiple clients
   15-vm-assembly.md         ← Udon VM overview and Udon Assembly reference
   16-layers.md              ← Unity layers in VRChat (layer table, stickers, physics)
+  17-allowlisted-components.md ← Complete list of allowed world components by category
+  18-scene-components.md     ← VRC_SceneDescriptor, VRC_ObjectSync, VRC_Pickup, VRC_Station, VRC_MirrorReflection, VRC_SpatialAudioSource, VRC_AvatarPedestal, VRC_UIShape, VRC_PortalMarker
+  19-world-setup.md          ← Creating worlds, SDK prefabs, supported assets, ClientSim, publishing
+  20-video-players.md        ← VRCAVProVideoPlayer and VRCUnityVideoPlayer reference
+  21-midi.md                 ← Realtime MIDI and MIDI playback (VRCMidiListener, VRCMidiPlayer)
+  22-event-execution-order.md ← Unity + VRChat event execution order
+  23-items.md                ← Items in Udon worlds (Item layer, disabling, physics safety)
 snippets/
   udonsharp.code-snippets   ← VS Code C# code snippets
 examples/
@@ -160,3 +167,23 @@ All content is derived from the official documentation:
 - https://creators.vrchat.com/worlds/udon/persistence/player-object
 - https://creators.vrchat.com/worlds/udon/string-loading
 - https://creators.vrchat.com/worlds/udon/ui-events
+- https://creators.vrchat.com/worlds/udon/video-players/
+- https://creators.vrchat.com/worlds/udon/midi/
+- https://creators.vrchat.com/worlds/udon/midi/realtime-midi
+- https://creators.vrchat.com/worlds/udon/midi/midi-playback
+- https://creators.vrchat.com/worlds/components/
+- https://creators.vrchat.com/worlds/components/vrc_scenedescriptor
+- https://creators.vrchat.com/worlds/components/vrc_objectsync
+- https://creators.vrchat.com/worlds/components/vrc_pickup
+- https://creators.vrchat.com/worlds/components/vrc_station
+- https://creators.vrchat.com/worlds/components/vrc_mirrorreflection
+- https://creators.vrchat.com/worlds/components/vrc_spatialaudiosource
+- https://creators.vrchat.com/worlds/components/vrc_avatarpedestal
+- https://creators.vrchat.com/worlds/components/vrc_uishape
+- https://creators.vrchat.com/worlds/components/vrc_portalmarker
+- https://creators.vrchat.com/worlds/creating-your-first-world
+- https://creators.vrchat.com/worlds/sdk-prefabs
+- https://creators.vrchat.com/worlds/supported-assets
+- https://creators.vrchat.com/worlds/submitting-a-world-to-be-made-public
+- https://creators.vrchat.com/worlds/clientsim/
+- https://creators.vrchat.com/worlds/items
