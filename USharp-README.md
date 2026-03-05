@@ -40,12 +40,6 @@ docs/
   23-items.md                ← Items in Udon worlds (Item layer, disabling, physics safety)
 snippets/
   udonsharp.code-snippets   ← VS Code C# code snippets
-examples/
-  RotatingCube.cs           ← Hello-world spinning cube
-  PlayerSettings.cs         ← Player locomotion settings
-  TeleportOnInteract.cs     ← Interact-based teleport
-  SyncedToggle.cs           ← Manual sync with FieldChangeCallback
-  ObjectPoolExample.cs      ← VRCObjectPool spawn/return
 README.md                   ← This file
 ```
 
