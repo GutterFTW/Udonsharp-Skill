@@ -26,6 +26,11 @@ docs/
   09-editor-scripting.md    ← Custom inspectors, proxy system
   10-debugging.md           ← Debug workflow and log reading
   11-external-urls.md       ← String loading and image loading
+  12-vrc-graphics.md        ← VRCGraphics, AsyncGPUReadback, VRCCameraSettings, VRCQualitySettings, Shader Globals
+  13-world-debug-views.md   ← In-client debug views and overlays
+  14-build-test.md          ← Build & Test, Build & Reload, multiple clients
+  15-vm-assembly.md         ← Udon VM overview and Udon Assembly reference
+  16-layers.md              ← Unity layers in VRChat (layer table, stickers, physics)
 snippets/
   udonsharp.code-snippets   ← VS Code C# code snippets
 examples/

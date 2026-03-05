@@ -520,3 +520,12 @@ Unity UI `OnClick` / `OnValueChanged` events can target these directly (no UdonB
 - https://creators.vrchat.com/worlds/udon/networking/compatibility
 - https://creators.vrchat.com/worlds/udon/networking/debugging
 - https://creators.vrchat.com/worlds/udon/networking/network-id-utility
+- https://creators.vrchat.com/worlds/udon/vrc-graphics/
+- https://creators.vrchat.com/worlds/udon/vrc-graphics/asyncgpureadback
+- https://creators.vrchat.com/worlds/udon/vrc-graphics/vrc-camera-settings
+- https://creators.vrchat.com/worlds/udon/vrc-graphics/vrc-quality-settings
+- https://creators.vrchat.com/worlds/udon/vrc-graphics/vrchat-shader-globals
+- https://creators.vrchat.com/worlds/udon/world-debug-views
+- https://creators.vrchat.com/worlds/udon/using-build-test
+- https://creators.vrchat.com/worlds/udon/vm-and-assembly/
+- https://creators.vrchat.com/worlds/layers

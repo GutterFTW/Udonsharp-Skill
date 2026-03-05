@@ -13,41 +13,51 @@ to fields and methods on various component types — **no UdonBehaviour wrapper 
 
 ## Allowed Event Targets
 
-The following components and their public methods can be directly targeted in the Unity Inspector  
-from UI events (`OnClick`, `OnValueChanged`, `OnEndEdit`, etc.):
+The following components and their properties/methods can be directly targeted in the Unity Inspector
+from UI events (`OnClick`, `OnValueChanged`, `OnEndEdit`, etc.). This is the complete official list.
 
-### Core Unity
-- **`GameObject`** — `SetActive(bool)`
-- **`AudioSource`** — play/stop/pause/volume/clip/etc.
-- **`Animator`** — `SetBool`, `SetFloat`, `SetInteger`, `SetTrigger`, `Play`, `enabled`, etc.
-- **`ParticleSystem`** — `Play`, `Stop`, `Pause`, `Emit`, etc.
-- **`Light`** — `enabled`, `intensity`, `range`, `color`, etc.
-- **`MeshRenderer`** — `enabled`, `material`, etc.
-- **`SkinnedMeshRenderer`** — `enabled`, etc.
-- **`LineRenderer`** — `enabled`, etc.
-- **`TrailRenderer`** — `enabled`, `time`, etc.
-- **`Camera`** — `enabled`, etc.
-- **`Rigidbody`** — `isKinematic`, `useGravity`, etc.
+### Scene Components
+- **`GameObject`** — `SetActive`
+- **`Collider`** — `enabled`, `isTrigger`
+- **`Light`** — `Reset`, `bounceIntensity`, `colorTemperature`, `cookie`, `enabled`, `intensity`, `range`, `shadowBias`, `shadowNearPlane`, `shadowNormalBias`, `shadowStrength`, `spotAngle`
+- **`MeshRenderer`** — `shadowCastingMode`, `enabled`, `probeAnchor`, `receiveShadows`, `lightProbeUsage`
+- **`SkinnedMeshRenderer`** — `allowOcclusionWhenDynamic`, `shadowCastingMode`, `enabled`, and more
+- **`LineRenderer`** — `enabled`, `endWidth`, `startWidth`, `loop`, `useWorldSpace`, `widthMultiplier`, and more
+- **`TrailRenderer`** — `Clear`, `enabled`, `emitting`, `endWidth`, `startWidth`, `widthMultiplier`, and more
+- **`Projector`** — `aspectRatio`, `enabled`, `nearClipPlane`, `farClipPlane`, `fieldOfView`, `orthographic`, `orthographicSize`
+
+### Audio Components
+- **`AudioSource`** — `Pause`, `Play`, `PlayDelayed`, `PlayOneShot`, `Stop`, `UnPause`, `bypassEffects`, `dopplerLevel`, `enabled`, `loop`, `maxDistance`, `minDistance`, `mute`, `pitch`, `playOnAwake`, `priority`, `spatialize`, `spread`, `time`, `volume`, and more
+- **`AudioDistortionFilter`** — `decayRatio`, `delay`, `dryMix`, `enabled`, `wetMix`
+- **`AudioEchoFilter`** — `decayRatio`, `delay`, `dryMix`, `enabled`, `wetMix`
+- **`AudioHighPassFilter`** — `cutoffFrequency`, `enabled`, `highpassResonanceQ`
+- **`AudioLowPassFilter`** — `cutoffFrequency`, `enabled`, `lowpassResonanceQ`
+- **`AudioReverbFilter`** — `decayHFRatio`, `decayTime`, `density`, `diffusion`, `dryLevel`, `enabled`, `hfReference`, `reflectionsDelay`, `reflectionsLevel`, `reverbDelay`, `reverbLevel`, `room`, `roomHF`, `roomLF`
+- **`AudioReverbZone`** — `decayHFRatio`, `decayTime`, `density`, `diffusion`, `enabled`, `HFReference`, `LFReference`, `maxDistance`, `minDistance`, `reflections`, `reflectionsDelay`, `room`, `roomHF`, `roomLF`
+
+### Animation & Particles
+- **`Animator`** — `Play`, `PlayInFixedTime`, `Rebind`, `SetBool`, `SetFloat`, `SetInteger`, `SetTrigger`, `ResetTrigger`, `speed`
+- **`ParticleSystem`** — `Clear`, `Emit`, `Pause`, `Play`, `Simulate`, `Stop`, `TriggerSubEmitter`, `time`, `useAutoRandomSeed`
+- **`ParticleSystemForceField`** — `endRange`, `gravityFocus`, `length`, `multiplyDragByParticleSize`, `multiplyDragByParticleVelocity`, `startRange`
 
 ### Unity UI Components
-- **`Button`** — `interactable`
-- **`Slider`** — `value`, `minValue`, `maxValue`, `interactable`
-- **`Toggle`** — `isOn`, `interactable`
-- **`Dropdown`** — `value`, `interactable`
-- **`InputField`** — `text`, `interactable`
-- **`Scrollbar`** — `value`, `size`, `numberOfSteps`
-- **`ScrollRect`** — `horizontalNormalizedPosition`, `verticalNormalizedPosition`
-- **`Text`** — `text`, `fontSize`, `color`
-- **`Image`** — `enabled`, `color`, `fillAmount`, `sprite`
-- **`RawImage`** — `enabled`, `color`, `texture`, `uvRect`
-- **`CanvasGroup`** — `alpha`, `interactable`, `blocksRaycasts`
-- **`Canvas`** — `enabled`
+- **`Button`** — `enabled`, `interactable`, `targetGraphic`
+- **`Dropdown`** — `captionText`, `enabled`, `interactable`, `itemText`, `targetGraphic`, `template`, `value`
+- **`Image`** — `alphaHitTestMinimumThreshold`, `enabled`, `fillAmount`, `fillCenter`, `fillClockwise`, `fillOrigin`, `maskable`, `preserveAspect`, `raycastTarget`, `useSpriteMesh`
+- **`InputField`** — `ForceLabelUpdate`, `caretBlinkRate`, `caretPosition`, `caretWidth`, `characterLimit`, `customCaretColor`, `enabled`, `interactable`, `readOnly`, `selectionAnchorPosition`, `text`, `textComponent`, `selectionFocusPosition` *(max 16,000 characters)*
+- **`Mask`** — `enabled`, `showMaskGraphic`
+- **`RawImage`** — `enabled`, `maskable`, `raycastTarget`
+- **`RectMask2D`** — `enabled`
+- **`Scrollbar`** — `enabled`, `handleRect`, `interactable`, `numberOfSteps`, `size`, `targetGraphic`, `value`
+- **`ScrollRect`** — `content`, `decelerationRate`, `elasticity`, `enabled`, `horizontal`, `horizontalNormalizedPosition`, `horizontalScrollbar`, `horizontalScrollbarSpacing`, `inertia`, `scrollSensitivity`, `vertical`, `verticalNormalizedPosition`, `verticalScrollbar`, `verticalScrollbarSpacing`, `viewport`
+- **`Selectable`** — `enabled`, `interactable`, `targetGraphic`
+- **`Slider`** — `enabled`, `fillRect`, `handleRect`, `interactable`, `maxValue`, `minValue`, `normalizedValue`, `targetGraphic`, `value`, `wholeNumbers`
+- **`Text`** — `alignByGeometry`, `enabled`, `fontSize`, `lineSpacing`, `maskable`, `raycastTarget`, `resizeTextForBestFit`, `resizeTextMaxSize`, `resizeTextMinSize`, `supportRichText`, `text`
+- **`Toggle`** — `enabled`, `group`, `interactable`, `isOn`, `targetGraphic`
+- **`ToggleGroup`** — `allowSwitchOff`, `enabled`
 
-### VRC-Specific
-- **`UdonBehaviour`** — `SendCustomEvent(string)`, `RunProgram`, `Interact`
-- **`VRC_Pickup`** — `pickupable`, `proximity`
-- **`VRCStation`** — `PlayerMobility`, `canUseStationFromStation`, `disableStationExit`
-- **`VRCAvatarPedestal`** — `ChangeAvatarsOnUse`
+### VRC / Udon
+- **`UdonBehaviour`** — `RunProgram`, `SendCustomEvent`, `Interact`
 
 ---
 
