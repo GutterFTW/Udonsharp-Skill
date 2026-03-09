@@ -7,6 +7,7 @@ using VRC.Udon.Common.Interfaces; // IUdonEventReceiver
 using System.Text;
 using System;
 
+[DefaultExecutionOrder(-100)]
 [UdonBehaviourSyncMode(BehaviourSyncMode.Manual)]
 public class VipWhitelistManager : UdonSharpBehaviour
 {
@@ -90,10 +91,6 @@ public class VipWhitelistManager : UdonSharpBehaviour
     private bool _cachedLocalIsSuperAdminVal = false;
     private bool _cachedLocalHasEditRole = false;
     private int _cachedLocalEditPermFrame = -1;
-    // Per-name throttling to avoid repeated IsDj logs for the same name
-    private string[] _isDjLogKeys = new string[LOG_THROTTLE_SIZE];
-    private float[] _isDjLogTimes = new float[LOG_THROTTLE_SIZE];
-
     // Replace jagged roleMembers array with flattened single-dimensional array to avoid Udon VM object-array EXTERN issues
     // parsed role members (flattened: roleIdx * ROLE_MEMBER_CAP + memberIdx)
     private const int ROLE_MEMBER_CAP = 256;
@@ -365,9 +362,11 @@ public class VipWhitelistManager : UdonSharpBehaviour
 
         int expectedFlatLen = rcount * ROLE_MEMBER_CAP;
         bool needsResize = (roleMembersFlat == null) || 
+                           (roleMembersFlatNorm == null) ||
                            (roleMemberCount == null) || 
                            (roleMemberCount.Length != rcount) || 
-                           (roleMembersFlat.Length != expectedFlatLen);
+                           (roleMembersFlat.Length != expectedFlatLen) ||
+                           (roleMembersFlatNorm.Length != expectedFlatLen);
         
         if (needsResize)
         {
@@ -640,12 +639,18 @@ public class VipWhitelistManager : UdonSharpBehaviour
         }
 
         SetDebugStage("Start:beforeInitLists");
-        // apply current DJ system state to all inspector-assigned lists
+        // Inject this manager into each inspector-assigned UI so the UI's inspector field
+        // does not need to be set manually. Manager runs before UIs (DefaultExecutionOrder(-100)),
+        // so this assignment is visible when each VipWhitelistUI.Start() runs.
         if (lists != null)
         {
             for (int i = 0; i < lists.Length; i++)
             {
-                if (lists[i] != null) ApplyDjSystemStateToList(lists[i]);
+                if (lists[i] != null)
+                {
+                    lists[i].manager = this;
+                    ApplyDjSystemStateToList(lists[i]);
+                }
             }
         }
         SetDebugStage("Start:afterInitLists");
@@ -825,7 +830,7 @@ public class VipWhitelistManager : UdonSharpBehaviour
         NotifyLists();
         // Force re-evaluation of local access/UI objects since synced lists may change interactivity or local object states
         EvaluateLocalAccess(true);
-        EvaluateLocalDjAccess();
+        EvaluateLocalDjAccess(true);
         BroadcastDjSystemState();
     }
 
@@ -883,6 +888,9 @@ public class VipWhitelistManager : UdonSharpBehaviour
 
         NotifyLists();
         EvaluateLocalAccess();
+        // Serialize updated roleListVersion so late joiners receive the current version
+        // counter and know to perform a full rebuild on deserialization.
+        if (Networking.IsOwner(gameObject)) TrySerializeManualChanges();
         SetDebugStage("OnStringLoadSuccess:done");
     }
 
@@ -1219,6 +1227,15 @@ public class VipWhitelistManager : UdonSharpBehaviour
             syncedManual = newArr;
             if (syncedManualCount > target) syncedManualCount = target;
         }
+        // Ensure norm array exists even when manual array size already matches target
+        // (e.g. default maxSyncedManual=80 with the default syncedManual=new string[80])
+        else if (syncedManualNorm == null || syncedManualNorm.Length != target)
+        {
+            syncedManualNorm = new string[target];
+            for (int i = 0; i < syncedManualCount && i < target; i++)
+                if (!string.IsNullOrEmpty(syncedManual[i]))
+                    syncedManualNorm[i] = NormalizeForCompare(syncedManual[i]);
+        }
         // ensure DJ synced array has same capacity
         if (syncedDj == null || syncedDj.Length != target)
         {
@@ -1231,6 +1248,14 @@ public class VipWhitelistManager : UdonSharpBehaviour
             }
             syncedDj = newArr2;
             if (syncedDjCount > target) syncedDjCount = target;
+        }
+        // Ensure DJ norm array exists even when DJ array size already matches target
+        else if (syncedDjNorm == null || syncedDjNorm.Length != target)
+        {
+            syncedDjNorm = new string[target];
+            for (int i = 0; i < syncedDjCount && i < target; i++)
+                if (!string.IsNullOrEmpty(syncedDj[i]))
+                    syncedDjNorm[i] = NormalizeForCompare(syncedDj[i]);
         }
     }
 
@@ -1805,13 +1830,21 @@ public class VipWhitelistManager : UdonSharpBehaviour
         syncedDjCount++;
         
         manualDirty = true;
-        
-        if (Networking.IsOwner(gameObject))
+
+        // Take ownership before serializing, matching the pattern used in OnRowToggled.
+        VRCPlayerApi lpAdd = GetLocalPlayer();
+        if (Utilities.IsValid(lpAdd) && !Networking.IsOwner(gameObject))
+        {
+            Networking.SetOwner(lpAdd, gameObject);
+            // OnOwnershipTransferred will flush manualDirty when ownership is confirmed.
+        }
+        else if (Networking.IsOwner(gameObject))
         {
             TrySerializeManualChanges();
         }
         
         ClearAccessCache();
+        NotifyLists();
     }
 
     public void DjRemove(string exact)
@@ -1841,13 +1874,21 @@ public class VipWhitelistManager : UdonSharpBehaviour
         syncedDjCount--;
         
         manualDirty = true;
-        
-        if (Networking.IsOwner(gameObject))
+
+        // Take ownership before serializing, matching the pattern used in OnRowToggled.
+        VRCPlayerApi lpRemove = GetLocalPlayer();
+        if (Utilities.IsValid(lpRemove) && !Networking.IsOwner(gameObject))
+        {
+            Networking.SetOwner(lpRemove, gameObject);
+            // OnOwnershipTransferred will flush manualDirty when ownership is confirmed.
+        }
+        else if (Networking.IsOwner(gameObject))
         {
             TrySerializeManualChanges();
         }
         
         ClearAccessCache();
+        NotifyLists();
     }
 
     // Evaluate DJ access for local player and toggle configured DJ area objects
@@ -1883,15 +1924,17 @@ public class VipWhitelistManager : UdonSharpBehaviour
 
         bool changed = (localDj != lastLocalDj);
 
+        // If the DJ system is entirely disabled, force all DJ area objects inactive regardless of the local player's DJ status.
+        bool djSystemOn = syncedDjSystemEnabled;
         if (djAreaObjects != null && (forceUpdate || changed))
         {
             for (int i = 0; i < djAreaObjects.Length; i++)
             {
                 var go = djAreaObjects[i];
                 if (go == null) continue;
-                // Objects are configured to be disabled when the local player is a DJ,
-                // so set active state to the inverse of localDj. Only change if different to avoid churn.
-                bool desired = !localDj;
+                // Objects are disabled when the local player is a DJ (they gain access).
+                // When the DJ system is entirely off, disable the objects for everyone.
+                bool desired = djSystemOn && !localDj;
                 if (go.activeSelf != desired) go.SetActive(desired);
             }
         }
@@ -2066,6 +2109,26 @@ public class VipWhitelistManager : UdonSharpBehaviour
         ui.SetDjSystemEnabled(syncedDjSystemEnabled);
     }
 
+    // Auto-registration: called by each VipWhitelistUI in Start() so that
+    // all UI instances receive BroadcastDjSystemState() and NotifyLists() calls
+    // even when not manually assigned in the inspector.
+    public void RegisterList(VipWhitelistUI ui)
+    {
+        if (ui == null) return;
+        // Dedup: skip if already registered
+        if (lists != null)
+        {
+            for (int i = 0; i < lists.Length; i++)
+                if (lists[i] == ui) return;
+        }
+        int oldLen = lists != null ? lists.Length : 0;
+        VipWhitelistUI[] newLists = new VipWhitelistUI[oldLen + 1];
+        for (int i = 0; i < oldLen; i++)
+            newLists[i] = lists[i];
+        newLists[oldLen] = ui;
+        lists = newLists;
+    }
+
     private void BroadcastDjSystemState()
     {
         if (lists != null)
@@ -2085,6 +2148,8 @@ public class VipWhitelistManager : UdonSharpBehaviour
         syncedDjSystemEnabled = enabled;
         djSystemDirty = true;
         BroadcastDjSystemState();
+        // Re-evaluate DJ area objects immediately so they reflect the new system state.
+        EvaluateLocalDjAccess(true);
         if (Networking.IsOwner(gameObject))
         {
             TrySerializeManualChanges();
@@ -2176,7 +2241,7 @@ public class VipWhitelistManager : UdonSharpBehaviour
                     summary += " [" + go.name + ": " + (go.activeSelf ? "active" : "inactive") + "]";
                 }
             }
-            Debug.Log("<color=#00ffff>(VIP Manager) " + summary + "</color>");
+            DebugLog(summary);
         }
 
         // Only notify UIs if forced or auth state changed
@@ -2339,9 +2404,6 @@ public class VipWhitelistManager : UdonSharpBehaviour
         // Also update DJ areas for local player in case their DJ status changed
         EvaluateLocalDjAccess();
     }
-
-    // temp buffer for player lookups when checking in-world presence
-    private VRCPlayerApi[] _playerBufForNotify = new VRCPlayerApi[64];
 
     // When we gain ownership, flush any pending manual changes by serializing once.
     public override void OnOwnershipTransferred(VRCPlayerApi newOwner)

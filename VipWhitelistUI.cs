@@ -10,8 +10,10 @@ using System;
 [UdonBehaviourSyncMode(BehaviourSyncMode.NoVariableSync)]
 public class VipWhitelistUI : UdonSharpBehaviour
 {
-    [Header("Manager (required)")]
-    [Tooltip("Assign the VipWhitelistManager instance that will be authoritative for the lists and syncing.")]
+    // Auto-assigned by VipWhitelistManager.Start() — no inspector assignment needed.
+    // The manager injects itself into all UIs listed in its 'lists[]' array before
+    // VipWhitelistUI.Start() runs (guaranteed by [DefaultExecutionOrder(-100)] on the manager).
+    [HideInInspector]
     public VipWhitelistManager manager;
 
     [Header("UI References (required)")]
@@ -40,7 +42,6 @@ public class VipWhitelistUI : UdonSharpBehaviour
 
     private bool _started;
     private RectTransform _contentRect;
-    private ScrollRect _scrollRect;
 
     [Header("DJ System")]
     [Tooltip("Assign the UI toggle that controls whether DJ whitelisting logic is enabled.")]
@@ -62,10 +63,6 @@ public class VipWhitelistUI : UdonSharpBehaviour
     // Timestamp (realtime) when the last poll occurred
     private float _lastPollTime = -1f;
 
-    // Per-name log throttling buffers: track last log time per normalized name to avoid repeated logs for same name
-    private string[] _updateRowLogKeys = new string[VipWhitelistManager.LOG_THROTTLE_SIZE];
-    private float[] _updateRowLogTimes = new float[VipWhitelistManager.LOG_THROTTLE_SIZE];
-
     // Player ID to displayName cache to reduce overhead of repeated player.displayName property access
     private int[] _playerIdToDisplayNameIds = new int[128];
     private string[] _playerIdToDisplayNames = new string[128];
@@ -75,10 +72,6 @@ public class VipWhitelistUI : UdonSharpBehaviour
     private string[] _currentPlayerKeys = new string[VipWhitelistManager.PLAYER_BUF_SIZE];
     // Reusable lowercased key buffer used while building the seen-set in RebuildPlayerList to avoid allocations.
     private string[] _addedKeysLower = new string[256];
-
-    // Throttle DJToggled calls per-name to avoid feedback loops when toggles cause UI events.
-    private string[] _djToggledKeys = new string[VipWhitelistManager.LOG_THROTTLE_SIZE];
-    private float[] _djToggledTimes = new float[VipWhitelistManager.LOG_THROTTLE_SIZE];
 
     // Cached LocalPlayer lookup per-frame to avoid repeated property access overhead in UI
     private VRCPlayerApi _cachedLocalPlayer = null;
@@ -231,7 +224,6 @@ public class VipWhitelistUI : UdonSharpBehaviour
             this.enabled = false;
             return;
         }
-        _scrollRect = _contentRect.GetComponentInParent<ScrollRect>();
 
         if (rowTemplate == null)
         {
@@ -256,14 +248,22 @@ public class VipWhitelistUI : UdonSharpBehaviour
 
         if (manager == null)
         {
-            // manager is required; always log a helpful error so designers notice the misconfiguration
-            Debug.LogError("(VIP Manager) VipWhitelistUI: manager is required. Disable this UI or assign a VipWhitelistManager.");
+            // Manager not injected — this UI is not listed in the manager's 'lists[]' array.
+            Debug.LogError("(VIP Manager) VipWhitelistUI: no manager assigned. Add this UI to the VipWhitelistManager's 'lists' array.");
             this.enabled = false;
             return;
         }
 
         _cachedManager = manager;
-        SetDjSystemEnabled(manager.GetSyncedDjSystemEnabled());
+        // Register with the manager so this UI receives all future BroadcastDjSystemState() and
+        // NotifyLists() calls. Without self-registration, only inspector-assigned entries in
+        // lists[] receive updates — causing other UI panels in the scene to fall out of sync.
+        manager.RegisterList(this);
+        // Force the toggle visual to initialize correctly regardless of the default field value.
+        // Pre-flip _djSystemEnabled so the guard in SetDjSystemEnabled never skips the initial set.
+        bool initDjState = manager.GetSyncedDjSystemEnabled();
+        _djSystemEnabled = !initDjState;
+        SetDjSystemEnabled(initDjState);
 
         // Ensure manager role buffers are initialized so role colors/permissions are available
         _cachedManager.EnsureRoleBuffersInitialized();
@@ -422,10 +422,18 @@ public class VipWhitelistUI : UdonSharpBehaviour
             }
         }
 
-        // Add DJ prefix if applicable
-        if (isDj && !display.ToLowerInvariant().StartsWith("(dj)"))
+        // Add DJ prefix if applicable — manual character check avoids ToLowerInvariant string allocation
+        if (isDj)
         {
-            display = "(DJ) " + display;
+            bool alreadyHasDjPrefix = display.Length >= 4 &&
+                display[0] == '(' &&
+                (display[1] == 'd' || display[1] == 'D') &&
+                (display[2] == 'j' || display[2] == 'J') &&
+                display[3] == ')';
+            if (!alreadyHasDjPrefix)
+            {
+                display = "(DJ) " + display;
+            }
         }
 
         return display;
@@ -440,6 +448,15 @@ public class VipWhitelistUI : UdonSharpBehaviour
         string displayName = GetCachedPlayerDisplayName(player);
         bool authed = IsAuthed(displayName);
         AddRowIfMissing(displayName, true, authed, player.playerId);
+        // If the row already existed (authed player rejoining), AddRowIfMissing returned early
+        // without updating the playerId. Update it now so FindRowIndexByPlayerId works on next leave.
+        string rejoinKey = NormalizeRawName(displayName);
+        int rejoinIdx = FindRowIndexByLower(rejoinKey);
+        if (rejoinIdx != -1)
+        {
+            var rejoinRs = rowScripts[rejoinIdx];
+            if (rejoinRs != null) rejoinRs.playerId = player.playerId;
+        }
         UpdateRowForName(displayName, authed);
         // no full rebuild
         if (manager != null) manager.EvaluateLocalAccess();
@@ -686,9 +703,6 @@ public class VipWhitelistUI : UdonSharpBehaviour
         int count = totalPlayers;
         VRCPlayerApi.GetPlayers(playerBuf);
 
-        // Track whether we added any rows so we can rebuild layout if needed
-        bool addedAny = false;
-
         // keep local seen set (lowercased) to avoid adding duplicates when players belong to multiple roles
         if (_addedKeysLower == null || _addedKeysLower.Length < rows.Length) _addedKeysLower = new string[Mathf.Max(rows.Length, 256)];
         int addedKeysCount = 0;
@@ -756,7 +770,6 @@ public class VipWhitelistUI : UdonSharpBehaviour
             if (existingIdx == -1)
             {
                 AddRowIfMissing(displayName, true, authed, p.playerId);
-                addedAny = true;
             }
             else
             {
@@ -798,7 +811,6 @@ public class VipWhitelistUI : UdonSharpBehaviour
                 if (FindRowIndexByLower(key) == -1)
                 {
                     AddRowIfMissing(manual, false, true, -1);
-                    addedAny = true;
                 }
                 
                 // Track this key as processed to prevent duplicates (moved outside the if block)
@@ -1529,6 +1541,8 @@ public class VipWhitelistUI : UdonSharpBehaviour
             bool canEdit = CanLocalEditTarget(raw);
             SetRowInteractable(rowObj, canEdit, i);
             SetRowDjInteractable(rowObj, GetCachedManagerCanManageDj(), i);
+            bool isDj = _cachedManager != null ? _cachedManager.IsDj(raw) : false;
+            rs.SetDjStateWithoutNotify(isDj);
             if (rs.nameText != null)
             {
                 string display = BuildDisplayName(raw);

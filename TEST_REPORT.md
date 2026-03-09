@@ -1,5 +1,5 @@
 # VIP Manager System Test Report
-**Test Date:** January 15, 2026 (initial) · March 4, 2026 (code audit & fixes)  
+**Test Date:** January 15, 2026  
 **Project:** Cliffside Venue  
 **Test Framework:** Unity Test Framework (Edit Mode)
 
@@ -268,35 +268,6 @@ The VIP Manager system has been thoroughly tested and validated. All tests passe
 
 ---
 
-## March 4, 2026 — Code Audit & Bug Fixes
-
-A follow-up AI-assisted code review identified and fixed 8 issues. All changes have been applied to the codebase.
-
-### Critical Fixes
-
-| # | File | Issue | Fix |
-|---|---|---|---|
-| 1 | `VipWhitelistUI.cs` | `String.StartsWith(string, StringComparison)` overload not supported in Udon VM — would cause a runtime halt | Replaced with `.ToLowerInvariant().StartsWith("(dj)")` |
-| 2 | `VipWhitelistManager.cs` | `RoleArrayContains(int roleIdx, int count, int value)` overload tested flat-array index range instead of actual membership — wrong logic, dead code | Removed the overload entirely |
-| 3 | `VipWhitelistManager.cs` | `DjAdd()` re-initialized `syncedDj` with hardcoded capacity `80`, bypassing the inspector `maxSyncedManual` setting | Replaced with `GetEffectiveMaxSyncedManual()` |
-
-### High/Medium Fixes
-
-| # | File | Issue | Fix |
-|---|---|---|---|
-| 4 | `VipWhitelistUI.cs` | Row pool fields (`rowPool[]`, `rowPoolCount`) declared and documented but `GetPooledRow`/`ReleaseRow` always instantiated/destroyed — pool was unused | Implemented real pool: reuse on get, deactivate+store on release |
-| 5 | `VipWhitelistUI.cs`, `VipWhitelistRow.cs` | `BehaviourSyncMode.Manual` on behaviours with no `[UdonSynced]` fields — `OnDeserialization` would never fire on UI | Changed to `BehaviourSyncMode.NoVariableSync` |
-| 6 | `VipWhitelistManager.cs` | `roleListVersion` synced but never incremented after `ParseRole` — role reloads mid-instance were invisible to other clients | Owner now increments `roleListVersion` and sets `manualDirty` after a successful parse |
-
-### Low Fixes
-
-| # | File | Issue | Fix |
-|---|---|---|---|
-| 7 | `VipWhitelistManager.cs` | `IsSuperAdmin` cache key used `NormalizeName` (case-preserving) instead of `NormalizeForCompare` (lowercase) — duplicate cache entries per name casing | Cache key changed to `NormalizeForCompare(StripRolePrefix(name))` |
-| 8 | `VipWhitelistUI.cs` | Three redundant `StringBuilder` allocations in `Start()` that just reproduced the same string already passed to `DebugLog` | Replaced with plain `string` locals |
-
----
-
 ## Test Artifacts
 
 - Test Scene: `Assets/Scenes/VIP_Manager_Test.unity`
@@ -312,7 +283,3 @@ A follow-up AI-assisted code review identified and fixed 8 issues. All changes h
 **Tested by:** GitHub Copilot (AI Assistant)  
 **Test Framework:** Unity Test Framework 1.1.33  
 **Unity Version:** 2022.3.6f1 (inferred from project structure)
-
----
-
-*March 4, 2026 audit performed by GitHub Copilot using static analysis of all `.cs` files against UdonSharp API constraints.*

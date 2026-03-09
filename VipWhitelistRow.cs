@@ -91,13 +91,9 @@ public class VipWhitelistRow : UdonSharpBehaviour
         }
     }
 
-    // Fallback: poll the Toggle state in Update so clicks still get detected even
-    // if the prefab's OnValueChanged wasn't wired. This avoids relying on runtime
-    // AddListener (unsupported by Udon).
-    void Update()
-    {
-        // Per-row Update polling disabled. Polling is performed centrally by VipWhitelistUI.PollRows to reduce per-row Update overhead.
-    }
+    // Note: per-row Update polling is disabled. Toggle polling is performed centrally
+    // by VipWhitelistUI.Update() on a throttled interval to reduce per-row overhead.
+    // No Update() method is defined here to avoid registering 256+ empty Udon Update calls.
 
     // Poll current toggle states and forward user-initiated changes. Called from VipWhitelistUI on a throttled interval.
     public void PollToggleStates()
