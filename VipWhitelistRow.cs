@@ -91,52 +91,7 @@ public class VipWhitelistRow : UdonSharpBehaviour
         }
     }
 
-    // Note: per-row Update polling is disabled. Toggle polling is performed centrally
-    // by VipWhitelistUI.Update() on a throttled interval to reduce per-row overhead.
-    // No Update() method is defined here to avoid registering 256+ empty Udon Update calls.
-
-    // Poll current toggle states and forward user-initiated changes. Called from VipWhitelistUI on a throttled interval.
-    public void PollToggleStates()
-    {
-        if (authToggle != null)
-        {
-            if (!started)
-            {
-                started = true;
-                lastIsOn = authToggle.isOn;
-            }
-            bool current = authToggle.isOn;
-            if (current != lastIsOn)
-            {
-                if (authToggle.interactable && parent != null)
-                {
-                    // Prefer cachedRawName (already normalized, no prefixes) over nameText.text
-                    // to avoid redundant NormalizeRawName/StripAllRolePrefixes work downstream.
-                    // This mirrors the same pattern used in the DJ branch below.
-                    string playerName = !string.IsNullOrEmpty(cachedRawName) ? cachedRawName : (nameText != null ? nameText.text : "");
-                    parent._OnRowToggled(playerName, current);
-                }
-                lastIsOn = current;
-            }
-        }
-        if (djToggle != null)
-        {
-            bool curDj = djToggle.isOn;
-            if (!started) { started = true; lastDjIsOn = curDj; }
-            if (curDj != lastDjIsOn)
-            {
-                if (djToggle.interactable && parent != null)
-                {
-                    // Prefer cachedRawName (already normalized) to match the DJToggled() method's approach.
-                    string playerName = !string.IsNullOrEmpty(cachedRawName) ? cachedRawName : (nameText != null ? nameText.text : "");
-                    parent.DJToggled(playerName);
-                }
-                lastDjIsOn = curDj;
-            }
-        }
-    }
-
-    // Public helpers to set toggle visual state without causing the UI polling loop to treat it as a user action.
+    // Public helpers to set toggle visual state without triggering Unity UI callbacks.
     // Use these from VipWhitelistUI whenever synchronizing toggles programmatically.
     public void SetAuthStateWithoutNotify(bool state)
     {
@@ -144,7 +99,6 @@ public class VipWhitelistRow : UdonSharpBehaviour
         {
             authToggle.SetIsOnWithoutNotify(state);
         }
-        // Update internal poll-tracking so PollToggleStates doesn't forward this programmatic change.
         lastIsOn = state;
         if (!started) started = true;
     }
@@ -155,7 +109,6 @@ public class VipWhitelistRow : UdonSharpBehaviour
         {
             djToggle.SetIsOnWithoutNotify(state);
         }
-        // Update internal poll-tracking so PollToggleStates doesn't forward this programmatic change.
         lastDjIsOn = state;
         if (!started) started = true;
     }

@@ -56,13 +56,6 @@ public class VipWhitelistUI : UdonSharpBehaviour
 
     private VipWhitelistManager _cachedManager; // cached manager reference used for repeated queries (roles, colors, permissions)
 
-    // Polling configuration: target updates per second for centralized polls of row toggles
-    // Polling detects user interaction with per-row Toggles without a per-row Update() call.
-    // Set to ~3Hz (0.33s interval) for better performance
-    private float _pollIntervalSeconds = 0.33f;
-    // Timestamp (realtime) when the last poll occurred
-    private float _lastPollTime = -1f;
-
     // Player ID to displayName cache to reduce overhead of repeated player.displayName property access
     private int[] _playerIdToDisplayNameIds = new int[128];
     private string[] _playerIdToDisplayNames = new string[128];
@@ -273,23 +266,6 @@ public class VipWhitelistUI : UdonSharpBehaviour
         // delegate access control visuals/objects to manager
         manager.EvaluateLocalAccess();
         manager.EvaluateLocalDjAccess();
-    }
-
-    void Update()
-    {
-        // Poll row toggles at target frequency (_pollIntervalSeconds) to capture user interactions
-        // without per-row Update overhead. Use realtime to avoid being affected by time scale.
-        float now = Time.realtimeSinceStartup;
-        if (now - _lastPollTime >= _pollIntervalSeconds)
-        {
-            _lastPollTime = now;
-            for (int i = 0; i < rowCount; i++)
-            {
-                var rs = rowScripts[i];
-                if (rs == null) continue;
-                rs.PollToggleStates();
-            }
-        }
     }
 
     private string NormalizeName(string s)
