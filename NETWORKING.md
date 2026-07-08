@@ -134,6 +134,27 @@ VIP Manager initializes:
 
 ---
 
+## Player Join / Leave
+
+From [Event Nodes — OnPlayerJoined / OnPlayerLeft](https://creators.vrchat.com/worlds/udon/graph/event-nodes/#onplayerjoined):
+
+- Both events fire on **every client** for **every** join/leave.
+- On late join, `OnPlayerJoined` runs for **all existing players** (including self).
+- Keep join/leave handlers lightweight; avoid full list rebuilds or barrier re-evaluation per remote player.
+
+VIP Manager pattern:
+
+| Event | Manager | UI |
+|-------|---------|-----|
+| `OnPlayerJoined` (remote) | Incremental UI notify only; `NotifyListsForName` if `PlayerHasUiPresence` | Add/update one row |
+| `OnPlayerJoined` (local) | `EvaluateLocalAccess()` + `EvaluateLocalDjAccess()` | Same incremental row path |
+| `OnPlayerLeft` (any) | Prune player name cache; no access/barrier eval | Mark offline or remove row |
+| `OnDeserialization` | Full cache clear + `NotifyLists()` + access eval | Deferred rebuild via manager |
+
+Local barrier objects (`objectsToDisableWhenAuthed`, `djAreaObjects`) are **not** re-evaluated when remote players join or leave.
+
+---
+
 ## Verification
 
 Networking behavior (ownership transfer, deserialization, late joiners, manual sync throttle) must be validated **manually** with multiple VRChat clients. See [README.md](README.md#testing--verification).

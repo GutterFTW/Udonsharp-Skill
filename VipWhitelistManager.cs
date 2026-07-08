@@ -757,8 +757,10 @@ public class VipWhitelistManager : UdonSharpBehaviour
         // Ownership is requested only when a local user attempts to modify the manual list.
         SetDebugStage("Start:afterSetOwner");
 
-        // initial evaluation of local access
+        // Initial evaluation of local VIP/DJ access and barrier objects (late joiners also
+        // receive OnDeserialization for synced list state).
         EvaluateLocalAccess();
+        EvaluateLocalDjAccess();
         SetDebugStage("Start:done");
 
         TryRecordInitialOwnerOnce();
@@ -790,8 +792,13 @@ public class VipWhitelistManager : UdonSharpBehaviour
 
     public override void OnPlayerJoined(VRCPlayerApi player)
     {
-        // Called when a single player joins the instance.
-        // Notify each inspector-assigned UI to add or update a single row (no full rebuild).
+        if (!Utilities.IsValid(player)) return;
+
+        // VRChat fires OnPlayerJoined on every client for every join. On late join you also
+        // receive it for all existing players. Keep work minimal per VRChat guidance:
+        // https://creators.vrchat.com/worlds/udon/graph/event-nodes/#onplayerjoined
+
+        // UI presence only: incremental row add/update (no full RebuildPlayerList).
         if (lists != null)
         {
             for (int i = 0; i < lists.Length; i++)
@@ -802,21 +809,25 @@ public class VipWhitelistManager : UdonSharpBehaviour
             }
         }
 
-        // Recompute local player's access because role membership can be dynamic and influenced by the joining player.
-        EvaluateLocalAccess();
-
-        // Notify UIs to update the joining player's row auth state/color based on current manual/role lists.
-        if (Utilities.IsValid(player))
+        // Local barrier/access depends on the local player's auth, not remote joins.
+        // Re-evaluate only when the local player joins (including late-join catch-up for self).
+        if (player.isLocal)
         {
-            string raw = NormalizeNameFromPlayer(player);
-            if (!string.IsNullOrEmpty(raw)) NotifyListsForName(raw, IsPlayerAuthorized(player));
+            EvaluateLocalAccess();
+            EvaluateLocalDjAccess(true);
+        }
+
+        // Row auth UI refresh only for permissioned players; skip passer-bys.
+        string raw = NormalizeNameFromPlayer(player);
+        if (!string.IsNullOrEmpty(raw) && PlayerHasUiPresence(raw))
+        {
+            NotifyListsForName(raw, IsPlayerAuthorized(player));
         }
     }
 
     public override void OnPlayerLeft(VRCPlayerApi player)
     {
-        // Called when a single player leaves the instance.
-        // Notify each inspector-assigned UI to mark the row offline or remove permission-less rows.
+        // UI presence only: mark offline or prune row (no full RebuildPlayerList).
         if (lists != null)
         {
             for (int i = 0; i < lists.Length; i++)
@@ -827,32 +838,31 @@ public class VipWhitelistManager : UdonSharpBehaviour
             }
         }
 
-        // Remove from player name cache to avoid stale entries
-        if (Utilities.IsValid(player))
+        // Remove from player name cache to avoid stale entries.
+        if (!Utilities.IsValid(player)) return;
+
+        int playerId = player.playerId;
+        if (playerId >= 0)
         {
-            int playerId = player.playerId;
-            if (playerId >= 0)
+            for (int i = 0; i < _playerNameCacheCount; i++)
             {
-                for (int i = 0; i < _playerNameCacheCount; i++)
+                if (_playerIdCache[i] == playerId)
                 {
-                    if (_playerIdCache[i] == playerId)
+                    // Shift remaining entries down in all three parallel arrays
+                    for (int j = i + 1; j < _playerNameCacheCount; j++)
                     {
-                        // Shift remaining entries down in all three parallel arrays
-                        for (int j = i + 1; j < _playerNameCacheCount; j++)
-                        {
-                            _playerIdCache[j - 1] = _playerIdCache[j];
-                            _playerNameCache[j - 1] = _playerNameCache[j];
-                            _playerDisplayNameCache[j - 1] = _playerDisplayNameCache[j];
-                        }
-                        _playerNameCacheCount--;
-                        break;
+                        _playerIdCache[j - 1] = _playerIdCache[j];
+                        _playerNameCache[j - 1] = _playerNameCache[j];
+                        _playerDisplayNameCache[j - 1] = _playerDisplayNameCache[j];
                     }
+                    _playerNameCacheCount--;
+                    break;
                 }
             }
         }
 
-        // Recompute local player's access because leaving players can affect dynamic role membership.
-        EvaluateLocalAccess();
+        // Remote players leaving cannot change local VIP/DJ access or barrier state.
+        // Access re-evaluation runs on Start, OnDeserialization, role loads, and manual edits.
     }
 
     public override void OnDeserialization()

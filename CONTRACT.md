@@ -180,8 +180,8 @@ Callable from UI or other scripts. All mutations take ownership and trigger manu
 
 | Method | Trigger |
 |--------|---------|
-| `OnPlayerJoined(VRCPlayerApi player)` | Player enters instance |
-| `OnPlayerLeft(VRCPlayerApi player)` | Player leaves instance |
+| `OnPlayerJoined(VRCPlayerApi player)` | Incremental UI row add/update; local access eval only when `player.isLocal` |
+| `OnPlayerLeft(VRCPlayerApi player)` | Incremental UI row offline/prune; no access eval |
 | `OnDeserialization()` | Synced state received |
 | `OnOwnershipTransferred(VRCPlayerApi newOwner)` | Ownership changes |
 | `OnStringLoadSuccess(IVRCStringDownload result)` | Role Pastebin URL loaded |
@@ -222,8 +222,8 @@ Row methods forward to `VipWhitelistUI._OnRowToggled` / `DJToggled`, which call 
 
 | Method | Trigger |
 |--------|---------|
-| `OnPlayerJoined(VRCPlayerApi player)` | Rebuild list on join |
-| `OnPlayerLeft(VRCPlayerApi player)` | Rebuild list on leave |
+| `OnPlayerJoined(VRCPlayerApi player)` | Incremental row add/update (no full rebuild) |
+| `OnPlayerLeft(VRCPlayerApi player)` | Incremental row offline/prune (no full rebuild) |
 
 ---
 
@@ -250,7 +250,7 @@ barrier.active = !IsAuthed(localPlayer)
 - Unauthorized → barriers **active** (blocking)
 - Authorized → barriers **inactive** (access granted)
 
-Evaluated on: player join/leave, deserialization, manual list change, role URL load.
+Evaluated on: `Start()`, local player `OnPlayerJoined`, `OnDeserialization`, manual list change, role URL load.
 
 ### DJ (`djAreaObjects`)
 
@@ -262,6 +262,8 @@ hasDjAccess = IsDj(localPlayer) || IsSuperAdmin(localPlayer)
 - DJ system off → all barriers **inactive** (gating disabled)
 - DJ system on, no access → barriers **active**
 - DJ system on, has access → barriers **inactive**
+
+Evaluated on: `Start()`, local player `OnPlayerJoined`, `OnDeserialization`, DJ list/system change, manual toggle.
 
 ---
 

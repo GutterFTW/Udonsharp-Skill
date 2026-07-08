@@ -438,22 +438,17 @@ public class VipWhitelistUI : UdonSharpBehaviour
             if (rejoinRs != null) rejoinRs.playerId = player.playerId;
         }
         UpdateRowForName(displayName, authed);
-        // Manager.OnPlayerJoined already calls EvaluateLocalAccess for all joins.
-        // Only evaluate DJ access when the joining player is the local player.
-        if (manager != null)
-        {
-            var lp = Networking.LocalPlayer;
-            if (Utilities.IsValid(lp) && lp.playerId == player.playerId) manager.EvaluateLocalDjAccess(true);
-        }
+        // Manager re-evaluates local VIP/DJ access only when the local player joins.
+        // Remote joins are UI-only incremental row updates (no barrier/access work).
     }
 
     public override void OnPlayerLeft(VRCPlayerApi player)
     {
-        // incremental: remove only the leaving player row
+        // Incremental: mark offline or prune only the leaving player's row (no full rebuild).
         if (!Utilities.IsValid(player))
         {
-            // Can't determine who left; avoid full rebuild to reduce cost. Just update access.
-            if (manager != null) manager.EvaluateLocalAccess();
+            // Can't determine who left; avoid full rebuild and skip access eval (remote leave
+            // cannot change local barrier state).
             return;
         }
 
@@ -511,7 +506,6 @@ public class VipWhitelistUI : UdonSharpBehaviour
             // Fallback: match by displayName if playerId lookup fails
             if (string.IsNullOrEmpty(dn))
             {
-                if (manager != null) manager.EvaluateLocalAccess();
                 return;
             }
 
@@ -536,9 +530,6 @@ public class VipWhitelistUI : UdonSharpBehaviour
                 RemoveRow(dn);
             }
         }
-
-        if (manager != null) manager.EvaluateLocalAccess();
-        if (manager != null) manager.EvaluateLocalDjAccess();
     }
 
     private void RemoveRow(string displayName)
