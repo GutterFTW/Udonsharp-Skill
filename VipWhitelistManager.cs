@@ -71,7 +71,7 @@ public class VipWhitelistManager : UdonSharpBehaviour
     [UdonSynced] private string[] syncedDj = new string[256];
     [UdonSynced] private int syncedDjCount;
     [UdonSynced] private bool syncedDjSystemEnabled = true;
-    // normalized name of the initial owner who started the instance (granted DJ manage permission)
+    // Permanent instance starter (normalized, case-insensitive). Grants DJ management; never overwritten.
     [UdonSynced] private string initialOwner;
     // version counter incremented when parsed role lists change so clients can decide whether to rebuild
     [UdonSynced] private int roleListVersion;
@@ -791,8 +791,7 @@ public class VipWhitelistManager : UdonSharpBehaviour
     public override void OnPlayerJoined(VRCPlayerApi player)
     {
         // Called when a single player joins the instance.
-        // Notify each registered UI to handle that specific player incrementally (UI will add or update a single row).
-        // This avoids performing a full list rebuild on every join.
+        // Notify each inspector-assigned UI to add or update a single row (no full rebuild).
         if (lists != null)
         {
             for (int i = 0; i < lists.Length; i++)
@@ -817,7 +816,7 @@ public class VipWhitelistManager : UdonSharpBehaviour
     public override void OnPlayerLeft(VRCPlayerApi player)
     {
         // Called when a single player leaves the instance.
-        // Notify each registered UI so it can mark the row not-in-world or remove it if appropriate.
+        // Notify each inspector-assigned UI to mark the row offline or remove permission-less rows.
         if (lists != null)
         {
             for (int i = 0; i < lists.Length; i++)
@@ -1320,9 +1319,7 @@ public class VipWhitelistManager : UdonSharpBehaviour
             string exact = NormalizeName(s);
             if (string.IsNullOrEmpty(exact)) continue;
             
-            // Check for duplicates using the already-written normalized entries for case-insensitive
-            // dedup. Previously used case-sensitive == on the raw array, allowing "Alice"/"alice"
-            // variants to both survive compaction.
+            // Case-insensitive dedup via syncedManualNorm.
             string exactNorm = NormalizeForCompare(exact);
             bool isDup = false;
             for (int j = 0; j < write; j++)
@@ -1538,9 +1535,7 @@ public class VipWhitelistManager : UdonSharpBehaviour
         
         EnsureRoleBuffersOnce();
         
-        // Use NormalizeForCompare (trim + lowercase) as the cache key so "Alice" and "alice"
-        // always map to the same cache slot. Previously used NormalizeName (trim-only, case-preserving)
-        // which caused duplicate cache entries for the same name with different casings.
+        // Cache key uses NormalizeForCompare for case-insensitive matching.
         string exact = NormalizeForCompare(StripRolePrefix(name));
         if (string.IsNullOrEmpty(exact)) return -1;
 
@@ -1807,7 +1802,7 @@ public class VipWhitelistManager : UdonSharpBehaviour
         return syncedDj[idx];
     }
 
-    // Lightweight notify that updates only the changed player's row in registered UIs.
+    // Lightweight notify that updates one player's row in all lists[] UIs.
     public void NotifyListsForName(string playerName, bool isAuthed)
     {
         if (string.IsNullOrEmpty(playerName)) return;
@@ -1830,9 +1825,7 @@ public class VipWhitelistManager : UdonSharpBehaviour
         
         EnsureSyncedArrayCapacity();
         
-        // Avoid duplicates using case-insensitive comparison (via syncedManualNorm) so that
-        // "Alice" and "alice" are not both stored. Previously used case-sensitive == which
-        // could allow case-variant duplicates to slip through.
+        // Case-insensitive dedup via syncedManualNorm.
         if (ArrayContains(syncedManual, syncedManualCount, exact)) return false;
         
         int manualLen = syncedManual.Length;
@@ -1877,7 +1870,7 @@ public class VipWhitelistManager : UdonSharpBehaviour
             syncedDjCount = 0;
         }
         
-        // Avoid duplicates using case-insensitive comparison (matching ManualAdd fix).
+        // Case-insensitive dedup via syncedDjNorm.
         if (ArrayContains(syncedDj, syncedDjCount, exact)) return;
         
         int djLen = syncedDj.Length;
@@ -1913,7 +1906,7 @@ public class VipWhitelistManager : UdonSharpBehaviour
         if (string.IsNullOrEmpty(exact) || syncedDj == null) return;
         if (!CanLocalManageDj()) return;
         
-        // Find the index to remove using case-insensitive lookup (matching ManualRemove fix).
+        // Case-insensitive lookup via syncedDjNorm.
         int idx = ArrayIndexOf(syncedDj, syncedDjCount, exact);
         
         if (idx == -1) return;
@@ -2023,8 +2016,7 @@ public class VipWhitelistManager : UdonSharpBehaviour
     {
         if (string.IsNullOrEmpty(exact) || syncedManual == null) return;
         
-        // Find the index to remove using case-insensitive lookup (via syncedManualNorm).
-        // Previously used case-sensitive == which silently failed when stored casing differed.
+        // Case-insensitive lookup via syncedManualNorm.
         int idx = ArrayIndexOf(syncedManual, syncedManualCount, exact);
         
         if (idx == -1) return;
@@ -2065,9 +2057,7 @@ public class VipWhitelistManager : UdonSharpBehaviour
     {
         if (string.IsNullOrEmpty(name)) return false;
         EnsureRoleBuffersOnce();
-        // Use NormalizeForCompare (trim + lowercase) so "Alice" and "alice" share the same cache
-        // slot. Previously used NormalizeName (trim-only) which caused duplicate access-cache entries
-        // for the same name with different casings, wasting cache capacity.
+        // Cache key uses NormalizeForCompare for case-insensitive matching.
         string exact = NormalizeForCompare(StripRolePrefix(name));
         if (string.IsNullOrEmpty(exact)) return false;
         int idx = EnsureAccessCached(exact);
@@ -2212,7 +2202,7 @@ public class VipWhitelistManager : UdonSharpBehaviour
     private int _lastNotifiedDjCount = -1;
     private bool _rebuildScheduled = false;
 
-    // Notify registered lists to rebuild/refresh
+    // Notify all lists[] UIs to rebuild or refresh toggles.
     public void NotifyLists()
     {
         bool needRebuild = false;
@@ -2316,7 +2306,7 @@ public class VipWhitelistManager : UdonSharpBehaviour
         // Only notify UIs if forced or auth state changed
         if (forceUpdate || changed)
         {
-            // Lightweight: update each registered UI to refresh row toggles/interactivity
+            // Refresh row toggles in all lists[] UIs.
             if (lists != null)
             {
                 for (int i = 0; i < lists.Length; i++)

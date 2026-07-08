@@ -10,9 +10,8 @@ using System;
 [UdonBehaviourSyncMode(BehaviourSyncMode.NoVariableSync)]
 public class VipWhitelistUI : UdonSharpBehaviour
 {
-    // Auto-assigned by VipWhitelistManager.Start() — no inspector assignment needed.
-    // The manager injects itself into all UIs listed in its 'lists[]' array before
-    // VipWhitelistUI.Start() runs (guaranteed by [DefaultExecutionOrder(-100)] on the manager).
+    // Manager reference is injected by VipWhitelistManager.Start() for each entry in lists[].
+    // Assign this UI on the manager's lists[] array in the Inspector before play.
     [HideInInspector]
     public VipWhitelistManager manager;
 
@@ -242,7 +241,7 @@ public class VipWhitelistUI : UdonSharpBehaviour
         if (manager == null)
         {
             // Manager not injected — this UI is not listed in the manager's 'lists[]' array.
-            Debug.LogError("(VIP Manager) VipWhitelistUI: no manager assigned. Add this UI to the VipWhitelistManager's 'lists' array.");
+            Debug.LogError("(VIP Manager) VipWhitelistUI: no manager assigned. Add this UI to the manager's lists[] array in the Inspector.");
             this.enabled = false;
             return;
         }
@@ -528,9 +527,7 @@ public class VipWhitelistUI : UdonSharpBehaviour
                     {
                         rs2.inWorldToggle.SetIsOnWithoutNotify(false);
                     }
-                    // Clear stale playerId so a future player with the same ID doesn't match
-                    // this row. The primary (idxById != -1) path clears playerId; this fallback
-                    // path previously forgot to, leaving a dangling ID that VRChat can reuse.
+                    // Clear stale playerId when marking offline.
                     if (rs2 != null) rs2.playerId = -1;
                 }
             }
@@ -628,7 +625,7 @@ public class VipWhitelistUI : UdonSharpBehaviour
         return -1;
     }
 
-    // Build the rows to reflect current players only
+    // Rebuild list rows: permissioned players, manual entries, pinned instance starter.
     public void RebuildPlayerList()
     {
         if (manager != null && manager.enableDebugLogs)
@@ -636,10 +633,8 @@ public class VipWhitelistUI : UdonSharpBehaviour
             manager.DebugLog("RebuildPlayerList: Starting player list rebuild");
         }
         
-        // Preserve scroll/content position so UI doesn't jump to top on rebuild
-        // Incremental approach: do not destroy existing rows. Add any missing players to the bottom,
-        // and ensure manual entries are shown. Deletion of rows is handled by OnPlayerLeft which
-        // removes the specific row.
+        // Incremental rebuild: add missing rows without destroying existing ones.
+        // Permission-less passer-bys are pruned on leave via OnPlayerLeft.
         int totalPlayers = VRCPlayerApi.GetPlayerCount();
         
         if (manager != null && manager.enableDebugLogs)
@@ -722,7 +717,7 @@ public class VipWhitelistUI : UdonSharpBehaviour
             }
             else
             {
-                // update cached playerId for the existing row in case it was previously a manual entry
+                // Refresh playerId when an offline/manual row is now in-world.
                 var rs = rowScripts[existingIdx];
                 if (rs != null) rs.playerId = p.playerId;
             }
@@ -1130,8 +1125,7 @@ public class VipWhitelistUI : UdonSharpBehaviour
             // cache associated player id if this row represents an in-world player
             rowScript.playerId = inWorld ? inWorldPlayerId : -1;
             // cache raw/display names and role metadata since roles do not change at runtime
-            // Use NormalizeRawName (strips ALL prefixes) so cachedRawName never retains leftover
-            // role/DJ prefixes — previously used GetNameWithoutRolePrefix which only stripped one level.
+            // NormalizeRawName strips all displayed role/DJ prefixes for stable lookups.
             string rawName = NormalizeRawName(nameText != null ? nameText.text : displayName);
             rowScript.cachedRawName = rawName;
             rowScript.cachedRawNameLower = string.IsNullOrEmpty(rawName) ? null : rawName.ToLowerInvariant();
@@ -1472,11 +1466,7 @@ public class VipWhitelistUI : UdonSharpBehaviour
     // Called by per-row wiring when auth toggle changes. Delegates to manager.
     public void _OnRowToggled(string playerName, bool isOn)
     {
-        // Strip ALL displayed role prefixes (e.g. "(DJ) (VIP Member) Alice" -> "Alice") before forwarding
-        // to the manager so stored manual entries never carry leftover role/DJ prefixes.
-        // Previously used GetNameWithoutRolePrefix which only stripped a single prefix level, causing
-        // names like "(VIP Member) Alice" to be stored in the manual list when both DJ and role prefixes
-        // were present on the displayed name.
+        // NormalizeRawName strips all displayed prefixes before forwarding to the manager.
         string raw = NormalizeRawName(playerName);
         if (manager != null)
         {

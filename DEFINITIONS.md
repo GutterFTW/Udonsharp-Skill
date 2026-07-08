@@ -1,6 +1,6 @@
 # VIP Manager — Component & Data Definitions
 
-**Status:** Locked for code alignment (v1.0 contract)  
+**Status:** Locked (v1.0 contract, July 2026)  
 See also: [CONTRACT.md](CONTRACT.md), [NETWORKING.md](NETWORKING.md)
 
 ---
@@ -99,14 +99,6 @@ Show a row when the player has **any** of:
 
 ## Verification
 
-Manual in-instance testing in VRChat is the **expected** way to validate behavior. See [README.md](README.md#testing--verification) for a recommended test checklist. Editor NUnit tests are optional smoke checks only.
+Manual in-instance testing in VRChat is the **expected** way to validate behavior. See [README.md](README.md#testing--verification) for the recommended checklist. Editor NUnit tests are optional smoke checks only.
 
-## Code Alignment Checklist
-
-- [x] `initialOwner` via `InstanceOwner` → first joiner
-- [x] Super Admin overrides Read-Only for **other** players
-- [x] Remove `RegisterList()` — inspector `lists[]` only
-- [x] Separate `djListDirty` flag; `NotifyLists` watches `syncedDjCount`
-- [x] `maxSyncedManual` default 256, no hard cap 100
-- [x] Pinned `initialOwner` row + UI row pruning
-- [x] Manual DJ offline rows in rebuild
+Code is aligned with this contract as of v1.0 (July 2026).

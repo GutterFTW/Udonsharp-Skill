@@ -11,7 +11,7 @@ VRChat world asset for **VIP area access** and **DJ booth access**, built with [
 - **Role-based whitelists** — Each role can load members from a `VRCUrl` (Pastebin or compatible text host), with per-role colors and permissions.
 - **Manual lists** — Instance-synced manual VIP and DJ entries, editable from the in-world UI.
 - **In-world admin UI** — Scrollable player list with per-player VIP and DJ toggles.
-- **Super Admins** — Hardcoded display names with full edit rights and automatic VIP/DJ area access.
+- **Super Admins** — Hardcoded display names; all areas; own UI row immutable; can edit others including Read-Only roles.
 
 ---
 

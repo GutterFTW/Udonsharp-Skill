@@ -1,4 +1,7 @@
 # VIP Manager System Test Report
+
+> **Historical snapshot (January 15, 2026).** Edit-mode smoke tests only. For current behavior, API, and verification steps see [CONTRACT.md](CONTRACT.md), [DEFINITIONS.md](DEFINITIONS.md), and [README.md](README.md#testing--verification). Manual VRChat testing is the primary validation method.
+
 **Test Date:** January 15, 2026  
 **Project:** Cliffside Venue  
 **Test Framework:** Unity Test Framework (Edit Mode)
@@ -122,18 +125,18 @@ All core public API methods verified via reflection:
 
 ### Core Components Analyzed
 
-#### VipWhitelistManager (2440 lines)
-- **Purpose:** Central management system for VIP authentication and role-based access
+#### VipWhitelistManager
+- **Purpose:** Central management for VIP authentication, role-based access, and DJ subsystem
 - **Key Features:**
   - Multi-role support with configurable permissions
   - Pastebin URL integration for remote whitelist loading
-  - Sync system using UdonSync for VRChat networking
+  - Manual Udon sync for VRChat networking
   - Performance-optimized caching system
-  - DJ system with separate permission model
-  - Super admin override capabilities
-  - Read-only role protection
+  - DJ subsystem with separate permission model
+  - Super admin override (including Read-Only roles)
+  - Read-only role protection from staff edits
 
-#### VipWhitelistUI (1627 lines)
+#### VipWhitelistUI
 - **Purpose:** User interface for managing VIP lists
 - **Key Features:**
   - Row pooling for efficient memory usage
@@ -183,7 +186,7 @@ All core public API methods verified via reflection:
 
 ### External Systems
 - **Pastebin URLs:** Configured per-role for remote whitelist management
-- **String Loading:** VRCStringDownloader support for runtime updates
+- **String Loading:** VRCStringDownloader loads role lists at Start per client
 - **DJ System:** Separate permission model with toggle control
 
 ---

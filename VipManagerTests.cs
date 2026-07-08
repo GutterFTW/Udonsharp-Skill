@@ -5,8 +5,8 @@ using VRC.Udon;
 using System.Text;
 
 /// <summary>
-/// Automated tests for the VIP Manager system.
-/// Tests player authentication, role management, DJ system, and sync functionality.
+/// Optional runtime test harness for the VIP Manager system.
+/// Primary validation is manual in-instance testing in VRChat (see README.md).
 /// </summary>
 [UdonBehaviourSyncMode(BehaviourSyncMode.Manual)]
 public class VipManagerTests : UdonSharpBehaviour

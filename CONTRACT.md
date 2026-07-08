@@ -53,7 +53,7 @@ This document defines the **public integration surface** of `VipWhitelistManager
 | `rowTemplate` | `GameObject` | Yes (must contain `VipWhitelistRow`) |
 | `djSystemToggle` | `Toggle` | Recommended |
 
-`manager` is injected automatically; do not assign in Inspector.
+`manager` is injected by `VipWhitelistManager.Start()` for each UI in `lists[]`. Do not assign it on the UI directly.
 
 ---
 
@@ -350,8 +350,9 @@ Contract compliance is validated through **manual in-instance testing** in VRCha
 
 ## Changelog
 
-### 1.0 (initial)
+### 1.0 (July 2026)
 
 - Documented public query, mutation, inspector, and UI event surfaces.
-- Defined barrier gating semantics and sync scope.
+- Defined barrier gating semantics, manual sync scope, and networking reference.
 - Added Super Admin access pattern, edit-permission matrix, and commercial license terms.
+- Aligned implementation: `initialOwner`, Read-Only override, `lists[]` inspector-only, DJ dirty flag, UI pruning.

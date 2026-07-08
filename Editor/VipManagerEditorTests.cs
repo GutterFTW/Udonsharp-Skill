@@ -4,8 +4,8 @@ using NUnit.Framework;
 using System.Reflection;
 
 /// <summary>
-/// Editor tests for the VIP Manager system.
-/// Tests configuration, validation, and initialization without requiring play mode.
+/// Optional edit-mode smoke tests for VIP Manager inspector configuration.
+/// Primary validation is manual in-instance testing in VRChat (see README.md).
 /// </summary>
 public class VipManagerEditorTests
 {
