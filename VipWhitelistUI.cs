@@ -248,10 +248,6 @@ public class VipWhitelistUI : UdonSharpBehaviour
         }
 
         _cachedManager = manager;
-        // Register with the manager so this UI receives all future BroadcastDjSystemState() and
-        // NotifyLists() calls. Without self-registration, only inspector-assigned entries in
-        // lists[] receive updates — causing other UI panels in the scene to fall out of sync.
-        manager.RegisterList(this);
         // Force the toggle visual to initialize correctly regardless of the default field value.
         // Pre-flip _djSystemEnabled so the guard in SetDjSystemEnabled never skips the initial set.
         bool initDjState = manager.GetSyncedDjSystemEnabled();
@@ -417,11 +413,20 @@ public class VipWhitelistUI : UdonSharpBehaviour
 
     
 
+    private bool PlayerShouldShowInList(string displayName)
+    {
+        if (_cachedManager == null) return true;
+        string raw = NormalizeRawName(displayName);
+        if (string.IsNullOrEmpty(raw)) return false;
+        return _cachedManager.PlayerHasUiPresence(raw);
+    }
+
     public override void OnPlayerJoined(VRCPlayerApi player)
     {
-        // incremental: add only the joining player row
+        // incremental: add only the joining player row when they have list presence
         if (!Utilities.IsValid(player)) return;
         string displayName = GetCachedPlayerDisplayName(player);
+        if (!PlayerShouldShowInList(displayName)) return;
         bool authed = IsAuthed(displayName);
         AddRowIfMissing(displayName, true, authed, player.playerId);
         // If the row already existed (authed player rejoining), AddRowIfMissing returned early
@@ -434,9 +439,8 @@ public class VipWhitelistUI : UdonSharpBehaviour
             if (rejoinRs != null) rejoinRs.playerId = player.playerId;
         }
         UpdateRowForName(displayName, authed);
-        // no full rebuild
-        if (manager != null) manager.EvaluateLocalAccess();
-        // Only evaluate DJ access if the joining player is the local player (others won't affect local DJ state)
+        // Manager.OnPlayerJoined already calls EvaluateLocalAccess for all joins.
+        // Only evaluate DJ access when the joining player is the local player.
         if (manager != null)
         {
             var lp = Networking.LocalPlayer;
@@ -468,30 +472,13 @@ public class VipWhitelistUI : UdonSharpBehaviour
         {
             var rs = rowScripts[idxById];
             string rawKey = rowKeys[idxById];
-            bool isAuthed = IsAuthed(rawKey);
-            if (isAuthed)
+            bool keepRow = _cachedManager != null && _cachedManager.PlayerHasUiPresence(rawKey);
+            if (keepRow)
             {
                 // mark as not in-world and clear cached playerId so row remains for rejoin
                 if (rs != null && rs.inWorldToggle != null)
                 {
                     rs.inWorldToggle.SetIsOnWithoutNotify(false);
-                }
-                else
-                {
-                    var rowObj = rows[idxById];
-                    if (Utilities.IsValid(rowObj))
-                    {
-                        var toggles = rowObj.GetComponentsInChildren<Toggle>(true);
-                        for (int t = 0; t < toggles.Length; t++)
-                        {
-                            string n = toggles[t].gameObject.name.ToLowerInvariant();
-                            if (n.Contains("here") || n.Contains("inworld") || n.Contains("present"))
-                            {
-                                toggles[t].SetIsOnWithoutNotify(false);
-                                break;
-                            }
-                        }
-                    }
                 }
                 if (rs != null) rs.playerId = -1;
             }
@@ -529,8 +516,8 @@ public class VipWhitelistUI : UdonSharpBehaviour
                 return;
             }
 
-            bool isAuthed = IsAuthed(dn);
-            if (isAuthed)
+            bool keepRow = _cachedManager != null && _cachedManager.PlayerHasUiPresence(NormalizeRawName(dn));
+            if (keepRow)
             {
                 string normalized = NormalizeRawName(dn);
                 int idx = FindRowIndexByLower(normalized);
@@ -540,24 +527,6 @@ public class VipWhitelistUI : UdonSharpBehaviour
                     if (rs2 != null && rs2.inWorldToggle != null)
                     {
                         rs2.inWorldToggle.SetIsOnWithoutNotify(false);
-                    }
-                    else
-                    {
-                        // fallback: set via generic helper
-                        var rowObj = rows[idx];
-                        if (Utilities.IsValid(rowObj))
-                        {
-                            var toggles = rowObj.GetComponentsInChildren<Toggle>(true);
-                            for (int t = 0; t < toggles.Length; t++)
-                            {
-                                string n = toggles[t].gameObject.name.ToLowerInvariant();
-                                if (n.Contains("here") || n.Contains("inworld") || n.Contains("present"))
-                                {
-                                    toggles[t].SetIsOnWithoutNotify(false);
-                                    break;
-                                }
-                            }
-                        }
                     }
                     // Clear stale playerId so a future player with the same ID doesn't match
                     // this row. The primary (idxById != -1) path clears playerId; this fallback
@@ -630,6 +599,7 @@ public class VipWhitelistUI : UdonSharpBehaviour
         if (rs != null)
         {
             rs.cachedRawName = normalized;
+            rs.cachedRawNameLower = rowKeysLower[idx];
             string display = BuildDisplayName(normalized);
             if (rs.nameText != null && rs.nameText.text != display)
             {
@@ -641,6 +611,8 @@ public class VipWhitelistUI : UdonSharpBehaviour
                 rs.cachedIsSuperAdmin = _cachedManager.IsSuperAdmin(normalized);
                 rs.cachedRoleIndex = !string.IsNullOrEmpty(normalized) ? _cachedManager.GetRoleIndex(normalized) : -1;
             }
+            bool isDj = _cachedManager != null ? _cachedManager.IsDj(normalized) : false;
+            rs.SetDjStateWithoutNotify(isDj);
         }
     }
 
@@ -675,8 +647,7 @@ public class VipWhitelistUI : UdonSharpBehaviour
             manager.DebugLog("RebuildPlayerList: Player count = " + totalPlayers.ToString());
         }
         
-        if (totalPlayers > playerBuf.Length) playerBuf = new VRCPlayerApi[totalPlayers];
-        int count = totalPlayers;
+        int count = Mathf.Min(totalPlayers, playerBuf.Length);
         VRCPlayerApi.GetPlayers(playerBuf);
 
         // keep local seen set (lowercased) to avoid adding duplicates when players belong to multiple roles
@@ -733,6 +704,8 @@ public class VipWhitelistUI : UdonSharpBehaviour
                 }
             }
             if (already) continue;
+
+            if (!PlayerShouldShowInList(displayName)) continue;
             
             // ensure row exists for this player (will add to bottom if missing)
             bool authed = IsAuthed(displayName);
@@ -758,6 +731,31 @@ public class VipWhitelistUI : UdonSharpBehaviour
             if (addedKeysCount < _addedKeysLower.Length)
             {
                 _addedKeysLower[addedKeysCount++] = keyLower;
+            }
+        }
+
+        // Pinned instance starter row (always visible with * even when offline)
+        if (manager != null)
+        {
+            string ioName = manager.GetInitialOwnerName();
+            if (!string.IsNullOrEmpty(ioName))
+            {
+                string ioKey = NormalizeRawName(ioName);
+                string ioKeyLower = ioKey.ToLowerInvariant();
+                bool ioAlready = false;
+                for (int _a = 0; _a < addedKeysCount; _a++)
+                {
+                    if (_addedKeysLower[_a] == ioKeyLower) { ioAlready = true; break; }
+                }
+                if (!ioAlready && FindRowIndexByLower(ioKey) == -1)
+                {
+                    bool ioAuthed = manager.IsAuthed(ioKey);
+                    AddRowIfMissing(ioName, false, ioAuthed, -1);
+                    if (addedKeysCount < _addedKeysLower.Length)
+                    {
+                        _addedKeysLower[addedKeysCount++] = ioKeyLower;
+                    }
+                }
             }
         }
 
@@ -797,6 +795,35 @@ public class VipWhitelistUI : UdonSharpBehaviour
             }
         }
 
+        // Ensure manually granted DJs are shown even if they're not currently in world
+        if (manager != null)
+        {
+            int dc = manager.GetSyncedDjCount();
+            for (int i = 0; i < dc; i++)
+            {
+                string manualDj = manager.GetSyncedDjAt(i);
+                if (string.IsNullOrEmpty(manualDj)) continue;
+                string key = NormalizeRawName(manualDj);
+                if (string.IsNullOrEmpty(key)) continue;
+
+                string keyLower = key.ToLowerInvariant();
+                bool already = false;
+                for (int _a = 0; _a < addedKeysCount; _a++)
+                {
+                    if (_addedKeysLower[_a] == keyLower) { already = true; break; }
+                }
+                if (already) continue;
+                if (FindRowIndexByLower(key) == -1)
+                {
+                    AddRowIfMissing(manualDj, false, manager.IsAuthed(key), -1);
+                }
+                if (addedKeysCount < _addedKeysLower.Length)
+                {
+                    _addedKeysLower[addedKeysCount++] = keyLower;
+                }
+            }
+        }
+
         // Update in-world toggles and auth states for existing rows without rebuilding the entire list
         for (int i = 0; i < rowCount; i++)
         {
@@ -813,6 +840,7 @@ public class VipWhitelistUI : UdonSharpBehaviour
                 raw = GetNameWithoutRolePrefix(displayed);
                 raw = NormalizeName(raw);
                 rs.cachedRawName = raw;
+                rs.cachedRawNameLower = string.IsNullOrEmpty(raw) ? null : raw.ToLowerInvariant();
             }
 
             // set in-world toggle if present using cached toggle when possible
@@ -850,6 +878,10 @@ public class VipWhitelistUI : UdonSharpBehaviour
                 // also respect explicit displayed "(Super Admin)" prefix if present in cached display name
                 if (!rs.cachedIsSuperAdmin && rs.cachedDisplayName != null && DisplayedIsSuperAdmin(rs.cachedDisplayName)) rs.cachedIsSuperAdmin = true;
             }
+            if (!string.IsNullOrEmpty(raw))
+            {
+                rs.cachedRawNameLower = raw.ToLowerInvariant();
+            }
 
             // update auth toggle and interactable/color via helper methods
             bool authed = IsAuthed(raw);
@@ -864,6 +896,7 @@ public class VipWhitelistUI : UdonSharpBehaviour
             {
                 string display = BuildDisplayName(raw);
                 if (txtComp.text != display) txtComp.text = display;
+                rs.cachedDisplayName = display;
                 Color desiredColor = _templateNameColor;
                 if (rs.cachedIsSuperAdmin) desiredColor = _cachedManager.superAdminNameColor;
                 else if (rs.cachedRoleIndex >= 0) desiredColor = _cachedManager.GetRoleColorByIndex(rs.cachedRoleIndex);
@@ -917,9 +950,16 @@ public class VipWhitelistUI : UdonSharpBehaviour
             var rs = rowScripts[i];
             if (rs == null) continue;
             
-            // Prefer cached raw name to avoid parsing displayed text
+            // Prefer cached lowercased raw name to avoid repeated ToLowerInvariant calls
             string raw = rs.cachedRawName;
-            if (!string.IsNullOrEmpty(raw))
+            if (!string.IsNullOrEmpty(rs.cachedRawNameLower))
+            {
+                if (rs.cachedRawNameLower == keyLower)
+                {
+                    return i;
+                }
+            }
+            else if (!string.IsNullOrEmpty(raw))
             {
                 if (raw.ToLowerInvariant() == keyLower)
                 {
@@ -1094,6 +1134,7 @@ public class VipWhitelistUI : UdonSharpBehaviour
             // role/DJ prefixes — previously used GetNameWithoutRolePrefix which only stripped one level.
             string rawName = NormalizeRawName(nameText != null ? nameText.text : displayName);
             rowScript.cachedRawName = rawName;
+            rowScript.cachedRawNameLower = string.IsNullOrEmpty(rawName) ? null : rawName.ToLowerInvariant();
             rowScript.cachedDisplayName = nameText != null ? nameText.text : displayName;
             if (_cachedManager != null)
             {
@@ -1267,8 +1308,8 @@ public class VipWhitelistUI : UdonSharpBehaviour
                 roleIdx = _cachedManager.GetRoleIndex(raw);
             }
             
-            // If the target belongs to a role marked Read-Only, make the auth toggle non-interactable for everyone.
-            if (roleIdx >= 0 && _cachedManager.GetRoleIsReadOnly(roleIdx))
+            // Read-Only roles block staff edits; Super Admins may override.
+            if (roleIdx >= 0 && _cachedManager.GetRoleIsReadOnly(roleIdx) && !GetLocalIsSuperAdmin())
             {
                 auth.interactable = false;
                 return;
@@ -1357,8 +1398,8 @@ public class VipWhitelistUI : UdonSharpBehaviour
             {
                 if (!string.IsNullOrEmpty(raw)) roleIdx = _cachedManager.GetRoleIndex(raw);
             }
-            // If the target belongs to a role marked Read-Only, make the DJ toggle non-interactable for everyone.
-            if (roleIdx >= 0 && _cachedManager.GetRoleIsReadOnly(roleIdx)) { dj.interactable = false; return; }
+            // Read-Only roles block staff edits; Super Admins may override.
+            if (roleIdx >= 0 && _cachedManager.GetRoleIsReadOnly(roleIdx) && !GetLocalIsSuperAdmin()) { dj.interactable = false; return; }
         }
 
         dj.interactable = canManageDj;
@@ -1406,6 +1447,7 @@ public class VipWhitelistUI : UdonSharpBehaviour
             rowScript.djToggle = null;
             rowScript.playerId = -1;
             rowScript.cachedRawName = null;
+            rowScript.cachedRawNameLower = null;
             rowScript.cachedDisplayName = null;
             rowScript.cachedRoleIndex = -1;
             rowScript.cachedIsSuperAdmin = false;
@@ -1523,6 +1565,16 @@ public class VipWhitelistUI : UdonSharpBehaviour
             {
                 string display = BuildDisplayName(raw);
                 if (rs.nameText.text != display) rs.nameText.text = display;
+                rs.cachedDisplayName = display;
+            }
+            if (_cachedManager != null)
+            {
+                rs.cachedIsSuperAdmin = _cachedManager.IsSuperAdmin(raw);
+                rs.cachedRoleIndex = _cachedManager.GetRoleIndex(raw);
+            }
+            if (rs != null && !string.IsNullOrEmpty(raw))
+            {
+                rs.cachedRawNameLower = raw.ToLowerInvariant();
             }
         }
     }

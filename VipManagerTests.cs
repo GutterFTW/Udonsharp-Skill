@@ -344,7 +344,7 @@ public class VipManagerTests : UdonSharpBehaviour
                 Debug.Log(message);
             }
         }
-
+        
         if (resultBuilder != null)
         {
             resultBuilder.AppendLine(message);

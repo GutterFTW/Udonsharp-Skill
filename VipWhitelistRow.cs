@@ -15,6 +15,7 @@ public class VipWhitelistRow : UdonSharpBehaviour
 
     // cached metadata (role membership/name) set at creation time since roles don't change at runtime
     [HideInInspector] public string cachedRawName;
+    [HideInInspector] public string cachedRawNameLower;
     [HideInInspector] public string cachedDisplayName;
     [HideInInspector] public int cachedRoleIndex = -1;
     [HideInInspector] public bool cachedIsSuperAdmin = false;
