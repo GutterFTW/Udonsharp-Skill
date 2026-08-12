@@ -15,7 +15,6 @@ public class VipWhitelistManager : UdonSharpBehaviour
     public VipWhitelistUI[] lists;
 
     // Public constants used by VipWhitelistUI
-    public const int LOG_THROTTLE_SIZE = 64;
     public const int PLAYER_BUF_SIZE = 128;
     public const int MAX_ROWS = 256;
     public const int ROW_POOL_SIZE = MAX_ROWS;
@@ -174,12 +173,25 @@ public class VipWhitelistManager : UdonSharpBehaviour
         _playerNameCacheVersion++;
     }
 
+    // Lazily allocates the access-cache arrays if Start() hasn't run yet. Late joiners can receive
+    // OnDeserialization (which evaluates access) before Start() executes, so EnsureAccessCached must
+    // not depend on Start() having initialized these buffers first.
+    private void EnsureAccessCacheBuffers()
+    {
+        if (_accessCacheKeys != null && _accessCacheAuthed != null && _accessCacheDj != null) return;
+        int accessSize = Mathf.Clamp(accessCacheSize, 32, 2048);
+        _accessCacheKeys = new string[accessSize];
+        _accessCacheAuthed = new bool[accessSize];
+        _accessCacheDj = new bool[accessSize];
+    }
+
     // Ensure the access cache contains an entry for the normalized key and returns its index.
     // If missing, compute both authed and dj and store in cache.
     private int EnsureAccessCached(string normalizedKey)
     {
         if (string.IsNullOrEmpty(normalizedKey)) return -1;
-        
+        EnsureAccessCacheBuffers();
+
         // Search existing cache (only if cache is initialized)
         if (_accessCacheKeys != null)
         {
@@ -569,12 +581,6 @@ public class VipWhitelistManager : UdonSharpBehaviour
         _roleBuffersFixed = true;
     }
 
-    // Debug helper: set a simple runtime stage into inspector-visible string (safe, no arrays created)
-    private void SetDebugStage(string s)
-    {
-        // no-op: inspector-visible debug field removed
-    }
-
     // Cached hex string for logColor to avoid per-call string allocations in the debug log methods.
     // Lazily computed on first debug log call; reset in Start() to pick up any inspector changes.
     private string _cachedLogColorHex = null;
@@ -639,20 +645,15 @@ public class VipWhitelistManager : UdonSharpBehaviour
         {
             Debug.Log("(VIP Manager) Start() called. enableDebugLogs=" + enableDebugLogs.ToString());
         }
-        
-        SetDebugStage("Start:entered");
-        
+
         // Initialize runtime caches with inspector-configured sizes
         // Clamp to reasonable ranges to prevent memory issues
-        int accessSize = Mathf.Clamp(accessCacheSize, 32, 2048);
         int playerNameSize = Mathf.Clamp(playerNameCacheSize, 32, 2048);
         int roleIndexSize = Mathf.Clamp(roleIndexCacheSize, 32, 2048);
         int superAdminSize = Mathf.Clamp(isSuperAdminCacheSize, 32, 2048);
-        
-        _accessCacheKeys = new string[accessSize];
-        _accessCacheAuthed = new bool[accessSize];
-        _accessCacheDj = new bool[accessSize];
-        
+
+        EnsureAccessCacheBuffers();
+
         _playerIdCache = new int[playerNameSize];
         _playerNameCache = new string[playerNameSize];
         _playerDisplayNameCache = new string[playerNameSize];
@@ -665,23 +666,20 @@ public class VipWhitelistManager : UdonSharpBehaviour
         
         if (enableDebugLogs)
         {
-            DebugLog("Cache sizes initialized: Access=" + accessSize.ToString() + 
-                     ", PlayerName=" + playerNameSize.ToString() + 
+            DebugLog("Cache sizes initialized: Access=" + (_accessCacheKeys != null ? _accessCacheKeys.Length.ToString() : "0") +
+                     ", PlayerName=" + playerNameSize.ToString() +
                      ", RoleIndex=" + roleIndexSize.ToString() + 
                      ", SuperAdmin=" + superAdminSize.ToString());
         }
         
         EnsureSyncedArrayCapacity();
-        SetDebugStage("Start:afterEnsureSynced");
         CompactSyncedManual();
-        SetDebugStage("Start:afterCompactSynced");
 
         // compact DJ list as well
         CompactSyncedDj();
 
         // initialize role member buffers to match inspector roles
         EnsureRoleBuffersOnce();
-        SetDebugStage("Start:afterEnsureRoleBuffers");
         
         if (enableDebugLogs)
         {
@@ -693,10 +691,11 @@ public class VipWhitelistManager : UdonSharpBehaviour
             DebugLog("Start: Role count = " + _cachedRoleCount.ToString());
         }
 
-        SetDebugStage("Start:beforeInitLists");
         // Inject this manager into each inspector-assigned UI so the UI's inspector field
-        // does not need to be set manually. Manager runs before UIs (DefaultExecutionOrder(-100)),
-        // so this assignment is visible when each VipWhitelistUI.Start() runs.
+        // does not need to be set manually. [DefaultExecutionOrder(-100)] above is expected to run
+        // this before each VipWhitelistUI.Start(), but that attribute only actually orders
+        // Update/LateUpdate/FixedUpdate for UdonSharpBehaviours, not Start() -- so VipWhitelistUI.Start()
+        // retries for a few frames if `manager` is still null instead of assuming this ordering holds.
         if (lists != null)
         {
             for (int i = 0; i < lists.Length; i++)
@@ -708,7 +707,6 @@ public class VipWhitelistManager : UdonSharpBehaviour
                 }
             }
         }
-        SetDebugStage("Start:afterInitLists");
 
         // Load all role URLs if specified
         int rcount = _cachedRoleCount;
@@ -745,23 +743,19 @@ public class VipWhitelistManager : UdonSharpBehaviour
                         else
                         {
                             // fallback: skip loading to avoid VM EXTERN null reference
-                            SetDebugStage("Start:skipLoadUrl:noUdonBehaviour");
                         }
                     }
                 }
             }
         }
-        SetDebugStage("Start:afterLoadUrls");
 
         // Do NOT automatically take ownership on Start to avoid unnecessary ownership churn.
         // Ownership is requested only when a local user attempts to modify the manual list.
-        SetDebugStage("Start:afterSetOwner");
 
         // Initial evaluation of local VIP/DJ access and barrier objects (late joiners also
         // receive OnDeserialization for synced list state).
         EvaluateLocalAccess();
         EvaluateLocalDjAccess();
-        SetDebugStage("Start:done");
 
         TryRecordInitialOwnerOnce();
         
@@ -813,15 +807,8 @@ public class VipWhitelistManager : UdonSharpBehaviour
         // Re-evaluate only when the local player joins (including late-join catch-up for self).
         if (player.isLocal)
         {
-            EvaluateLocalAccess();
+            EvaluateLocalAccess(true);
             EvaluateLocalDjAccess(true);
-        }
-
-        // Row auth UI refresh only for permissioned players; skip passer-bys.
-        string raw = NormalizeNameFromPlayer(player);
-        if (!string.IsNullOrEmpty(raw) && PlayerHasUiPresence(raw))
-        {
-            NotifyListsForName(raw, IsPlayerAuthorized(player));
         }
     }
 
@@ -889,7 +876,6 @@ public class VipWhitelistManager : UdonSharpBehaviour
 
     public override void OnStringLoadSuccess(IVRCStringDownload result)
     {
-        SetDebugStage("OnStringLoadSuccess:entered");
         string text = result != null ? result.Result : null;
         // Attempt to determine which URL this result corresponds to
         string srcUrl = null;
@@ -897,7 +883,6 @@ public class VipWhitelistManager : UdonSharpBehaviour
         {
             srcUrl = result.Url.Get();
         }
-        SetDebugStage("OnStringLoadSuccess:afterGetUrl");
 
         bool handled = false;
         // try to match against roles' URLs
@@ -907,12 +892,10 @@ public class VipWhitelistManager : UdonSharpBehaviour
             // Attempt to match the downloaded string to a configured role URL and parse that role's members.
             for (int i = 0; i < rcount; i++)
             {
-                SetDebugStage("OnStringLoadSuccess:checkingRole:" + i.ToString());
                 var url = rolePastebinUrls.Length > i ? rolePastebinUrls[i] : null;
                 if (url == null) continue;
                 if (srcUrl == url.Get())
                 {
-                    SetDebugStage("OnStringLoadSuccess:match:" + i.ToString());
                     if (enableDebugLogs)
                     {
                         string roleName = (roleNames != null && i < roleNames.Length && !string.IsNullOrEmpty(roleNames[i])) 
@@ -945,12 +928,10 @@ public class VipWhitelistManager : UdonSharpBehaviour
         // Serialize updated roleListVersion so late joiners receive the current version
         // counter and know to perform a full rebuild on deserialization.
         if (Networking.IsOwner(gameObject)) TrySerializeManualChanges();
-        SetDebugStage("OnStringLoadSuccess:done");
     }
 
     public override void OnStringLoadError(IVRCStringDownload result)
     {
-        SetDebugStage("OnStringLoadError:entered");
         
         string srcUrl = null;
         string errorMsg = "Unknown error";
@@ -987,20 +968,16 @@ public class VipWhitelistManager : UdonSharpBehaviour
         DebugLog(msg);
         Debug.LogError("(VIP Manager) " + msg);
         
-        SetDebugStage("OnStringLoadError:done");
     }
 
     // Optimized role parsing with better bounds checking
     private void ParseRole(string text, int roleIndex)
     {
-        SetDebugStage("ParseRole:entered:" + roleIndex.ToString());
         EnsureRoleBuffers();
-        SetDebugStage("ParseRole:afterEnsureRoleBuffers:" + roleIndex.ToString());
         
         int roleNameCount = roleNames != null ? roleNames.Length : 0;
         if (roleIndex < 0 || roleIndex >= roleNameCount)
         {
-            SetDebugStage("ParseRole:outOfRangeIndex:" + roleIndex.ToString());
             return;
         }
         
@@ -1017,12 +994,9 @@ public class VipWhitelistManager : UdonSharpBehaviour
                 roleMembersFlatNorm[i] = null;
             }
         }
-        
-        SetDebugStage("ParseRole:clearedCount:" + roleIndex.ToString());
-        
+
         if (text == null)
         {
-            SetDebugStage("ParseRole:textNull:" + roleIndex.ToString());
             return;
         }
         
@@ -1046,7 +1020,6 @@ public class VipWhitelistManager : UdonSharpBehaviour
         
         for (int i = 0; i < maxTokensToProcess; i++)
         {
-            SetDebugStage("ParseRole:token:" + roleIndex.ToString() + ":" + i.ToString());
             
             if (currentMemberCount >= ROLE_MEMBER_CAP) break;
             
@@ -1110,9 +1083,7 @@ public class VipWhitelistManager : UdonSharpBehaviour
             
             DebugLog(msg);
         }
-        
-        SetDebugStage("ParseRole:done:" + roleIndex.ToString());
-        
+
         // Role membership changed -> clear cached access results
         ClearAccessCache();
     }
@@ -1236,14 +1207,6 @@ public class VipWhitelistManager : UdonSharpBehaviour
         return s.Trim().ToLowerInvariant();
     }
 
-    // Overload: get role index using a VRC player
-    private int GetRoleIndex(VRCPlayerApi player)
-    {
-        string name = NormalizeNameFromPlayer(player);
-        if (string.IsNullOrEmpty(name)) return -1;
-        return GetRoleIndex(name);
-    }
-
     // Overload: check superadmin status using VRC player
     private bool IsSuperAdmin(VRCPlayerApi player)
     {
@@ -1252,16 +1215,6 @@ public class VipWhitelistManager : UdonSharpBehaviour
         string displayName = GetCachedDisplayName(player);
         if (string.IsNullOrEmpty(displayName)) return false;
         return IsSuperAdmin(displayName);
-    }
-
-    // Overload: check auth using VRC player
-    private bool IsPlayerAuthorized(VRCPlayerApi player)
-    {
-        if (!Utilities.IsValid(player)) return false;
-        // prefer the name-stripping path so manual/role lookup remains consistent
-        string exact = NormalizeNameFromPlayer(player);
-        if (string.IsNullOrEmpty(exact)) return false;
-        return IsAuthed(exact);
     }
 
     private void EnsureSyncedArrayCapacity()
@@ -1499,19 +1452,6 @@ public class VipWhitelistManager : UdonSharpBehaviour
         return false;
     }
 
-    // helper for inspector whitelists
-    private bool IsInInspectorList(string[] arr, string name)
-    {
-        if (arr == null || string.IsNullOrEmpty(name)) return false;
-        string key = NormalizeName(name);
-        for (int i = 0; i < arr.Length; i++)
-        {
-            if (string.IsNullOrEmpty(arr[i])) continue;
-            if (NormalizeName(arr[i]) == key) return true;
-        }
-        return false;
-    }
-
     // Safe accessor for per-role member counts to avoid out-of-range indexing
     private int GetRoleMemberCountSafe(int idx)
     {
@@ -1530,12 +1470,6 @@ public class VipWhitelistManager : UdonSharpBehaviour
     public int GetRoleMemberCountPublic(int idx)
     {
         return GetRoleMemberCountSafe(idx);
-    }
-
-    // Return the current length of the synced manual array
-    private int GetSyncedManualArrayLength()
-    {
-        return syncedManual != null ? syncedManual.Length : 0;
     }
 
     // Determine role index for a given player name. Honors inspector array order (earlier = higher priority).
@@ -1869,8 +1803,16 @@ public class VipWhitelistManager : UdonSharpBehaviour
     public void DjAdd(string exact)
     {
         if (string.IsNullOrEmpty(exact)) return;
-        if (!CanLocalManageDj()) return;
-        
+        if (!CanLocalManageDjTarget(exact)) return;
+
+        // Request ownership before mutating synced state, matching the pattern used by
+        // OnRowToggled/ManualAdd for the VIP list (this was previously reversed here).
+        VRCPlayerApi lpAdd = GetLocalPlayer();
+        if (Utilities.IsValid(lpAdd) && !Networking.IsOwner(gameObject))
+        {
+            Networking.SetOwner(lpAdd, gameObject);
+        }
+
         // Initialize if needed
         if (syncedDj == null || syncedDj.Length == 0)
         {
@@ -1879,34 +1821,28 @@ public class VipWhitelistManager : UdonSharpBehaviour
             syncedDjNorm = new string[cap];
             syncedDjCount = 0;
         }
-        
+
         // Case-insensitive dedup via syncedDjNorm.
         if (ArrayContains(syncedDj, syncedDjCount, exact)) return;
-        
+
         int djLen = syncedDj.Length;
         if (syncedDjCount >= djLen) return;
-        
+
         syncedDj[syncedDjCount] = exact;
         if (syncedDjNorm != null && syncedDjCount < syncedDjNorm.Length)
         {
             syncedDjNorm[syncedDjCount] = NormalizeForCompare(exact);
         }
         syncedDjCount++;
-        
+
         djListDirty = true;
 
-        // Take ownership before serializing, matching the pattern used in OnRowToggled.
-        VRCPlayerApi lpAdd = GetLocalPlayer();
-        if (Utilities.IsValid(lpAdd) && !Networking.IsOwner(gameObject))
-        {
-            Networking.SetOwner(lpAdd, gameObject);
-            // OnOwnershipTransferred will flush manualDirty when ownership is confirmed.
-        }
-        else if (Networking.IsOwner(gameObject))
+        // OnOwnershipTransferred will flush djListDirty once ownership is confirmed.
+        if (Networking.IsOwner(gameObject))
         {
             TrySerializeManualChanges();
         }
-        
+
         ClearAccessCache();
         NotifyLists();
     }
@@ -1914,13 +1850,21 @@ public class VipWhitelistManager : UdonSharpBehaviour
     public void DjRemove(string exact)
     {
         if (string.IsNullOrEmpty(exact) || syncedDj == null) return;
-        if (!CanLocalManageDj()) return;
-        
+        if (!CanLocalManageDjTarget(exact)) return;
+
+        // Request ownership before mutating synced state, matching the pattern used by
+        // OnRowToggled/ManualRemove for the VIP list (this was previously reversed here).
+        VRCPlayerApi lpRemove = GetLocalPlayer();
+        if (Utilities.IsValid(lpRemove) && !Networking.IsOwner(gameObject))
+        {
+            Networking.SetOwner(lpRemove, gameObject);
+        }
+
         // Case-insensitive lookup via syncedDjNorm.
         int idx = ArrayIndexOf(syncedDj, syncedDjCount, exact);
-        
+
         if (idx == -1) return;
-        
+
         // Shift remaining entries down
         for (int i = idx + 1; i < syncedDjCount; i++)
         {
@@ -1930,28 +1874,22 @@ public class VipWhitelistManager : UdonSharpBehaviour
                 syncedDjNorm[i - 1] = syncedDjNorm[i];
             }
         }
-        
+
         syncedDj[syncedDjCount - 1] = null;
         if (syncedDjNorm != null && syncedDjCount - 1 < syncedDjNorm.Length)
         {
             syncedDjNorm[syncedDjCount - 1] = null;
         }
         syncedDjCount--;
-        
+
         djListDirty = true;
 
-        // Take ownership before serializing, matching the pattern used in OnRowToggled.
-        VRCPlayerApi lpRemove = GetLocalPlayer();
-        if (Utilities.IsValid(lpRemove) && !Networking.IsOwner(gameObject))
-        {
-            Networking.SetOwner(lpRemove, gameObject);
-            // OnOwnershipTransferred will flush manualDirty when ownership is confirmed.
-        }
-        else if (Networking.IsOwner(gameObject))
+        // OnOwnershipTransferred will flush djListDirty once ownership is confirmed.
+        if (Networking.IsOwner(gameObject))
         {
             TrySerializeManualChanges();
         }
-        
+
         ClearAccessCache();
         NotifyLists();
     }
@@ -2164,6 +2102,18 @@ public class VipWhitelistManager : UdonSharpBehaviour
         return false;
     }
 
+    // Whether the local player may add/remove the given target from the manual DJ list.
+    // DjAdd/DjRemove previously gated only on CanLocalManageDj(), unlike the parallel VIP-list
+    // path (CanLocalAddTarget/CanLocalRevokeTarget), which also blocks edits to Read-Only-protected
+    // targets unless the local player is a Super Admin. This closes that gap for the DJ list too.
+    private bool CanLocalManageDjTarget(string targetName)
+    {
+        if (!CanLocalManageDj()) return false;
+        VRCPlayerApi lp = GetLocalPlayer();
+        if (IsTargetReadOnly(targetName) && !IsSuperAdmin(lp)) return false;
+        return true;
+    }
+
     private void ApplyDjSystemStateToList(VipWhitelistUI ui)
     {
         if (ui == null) return;
@@ -2187,6 +2137,18 @@ public class VipWhitelistManager : UdonSharpBehaviour
     {
         if (!CanLocalManageDj()) return;
         if (syncedDjSystemEnabled == enabled) return;
+
+        // Request ownership before mutating synced state, matching the pattern used by
+        // OnRowToggled/ManualAdd for the VIP list (this was previously reversed here).
+        if (!Networking.IsOwner(gameObject))
+        {
+            VRCPlayerApi lp = GetLocalPlayer();
+            if (Utilities.IsValid(lp))
+            {
+                Networking.SetOwner(lp, gameObject);
+            }
+        }
+
         syncedDjSystemEnabled = enabled;
         djSystemDirty = true;
         BroadcastDjSystemState();
@@ -2195,14 +2157,6 @@ public class VipWhitelistManager : UdonSharpBehaviour
         if (Networking.IsOwner(gameObject))
         {
             TrySerializeManualChanges();
-        }
-        else
-        {
-            VRCPlayerApi lp = GetLocalPlayer();
-            if (Utilities.IsValid(lp))
-            {
-                Networking.SetOwner(lp, gameObject);
-            }
         }
     }
 
@@ -2436,24 +2390,27 @@ public class VipWhitelistManager : UdonSharpBehaviour
         initialOwnerDirty = false;
     }
 
-    // Whether the local player may add VIP access for the target (toggle ON).
-    private bool CanLocalAddTarget(string targetName)
+    // Shared gate for CanLocalAddTarget/CanLocalRevokeTarget: both require the same Read-Only/Super
+    // Admin preamble and differ only in which role permission flag (add vs revoke) they need.
+    private bool CanLocalModifyTarget(string targetName, bool needAdd, bool needRevoke)
     {
         VRCPlayerApi lp = GetLocalPlayer();
         if (!Utilities.IsValid(lp)) return false;
         if (IsTargetReadOnly(targetName) && !IsSuperAdmin(lp)) return false;
         if (IsSuperAdmin(lp)) return true;
-        return LocalHasRolePermission(true, false);
+        return LocalHasRolePermission(needAdd, needRevoke);
+    }
+
+    // Whether the local player may add VIP access for the target (toggle ON).
+    private bool CanLocalAddTarget(string targetName)
+    {
+        return CanLocalModifyTarget(targetName, true, false);
     }
 
     // Whether the local player may revoke VIP access for the target (toggle OFF).
     private bool CanLocalRevokeTarget(string targetName)
     {
-        VRCPlayerApi lp = GetLocalPlayer();
-        if (!Utilities.IsValid(lp)) return false;
-        if (IsTargetReadOnly(targetName) && !IsSuperAdmin(lp)) return false;
-        if (IsSuperAdmin(lp)) return true;
-        return LocalHasRolePermission(false, true);
+        return CanLocalModifyTarget(targetName, false, true);
     }
 
     // Scan local player's roles for add and/or revoke permission flags.

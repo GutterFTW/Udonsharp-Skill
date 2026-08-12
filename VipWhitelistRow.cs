@@ -21,27 +21,10 @@ public class VipWhitelistRow : UdonSharpBehaviour
     [HideInInspector] public bool cachedIsSuperAdmin = false;
 
     private bool lastIsOn;
-    private bool lastDjIsOn;
-    private bool started;
 
     void Start()
     {
-        started = true;
         if (authToggle != null) lastIsOn = authToggle.isOn;
-        if (djToggle != null) lastDjIsOn = djToggle.isOn;
-    }
-
-    // This method should be wired in the row prefab Toggle's OnValueChanged event
-    // to call this behaviour (pass the bool). It forwards the event to the parent UI.
-    public void _OnAuthToggle(bool isOn)
-    {
-        string playerName = "";
-        if (nameText != null) playerName = nameText.text;
-        if (parent != null)
-        {
-            parent._OnRowToggled(playerName, isOn);
-        }
-        lastIsOn = isOn;
     }
 
     // Called from DJ toggle in the row prefab via SendCustomEvent("DJToggled") on the row behaviour
@@ -51,13 +34,7 @@ public class VipWhitelistRow : UdonSharpBehaviour
         string playerName = null;
         if (!string.IsNullOrEmpty(cachedRawName)) playerName = cachedRawName;
         if (string.IsNullOrEmpty(playerName)) playerName = nameText != null ? nameText.text : "";
-        
-        // Update lastDjIsOn to prevent PollToggleStates from detecting this as a change
-        if (djToggle != null)
-        {
-            lastDjIsOn = djToggle.isOn;
-        }
-        
+
         if (parent != null)
         {
             parent.DJToggled(playerName);
@@ -82,7 +59,8 @@ public class VipWhitelistRow : UdonSharpBehaviour
         }
         else
         {
-            // Update lastIsOn to prevent PollToggleStates from detecting this as a change
+            // Keep lastIsOn in sync with the toggle's actual state so the next AuthToggled() call
+            // can correctly detect whether Unity flipped the visual state.
             lastIsOn = isOn;
         }
 
@@ -101,7 +79,6 @@ public class VipWhitelistRow : UdonSharpBehaviour
             authToggle.SetIsOnWithoutNotify(state);
         }
         lastIsOn = state;
-        if (!started) started = true;
     }
 
     public void SetDjStateWithoutNotify(bool state)
@@ -110,8 +87,6 @@ public class VipWhitelistRow : UdonSharpBehaviour
         {
             djToggle.SetIsOnWithoutNotify(state);
         }
-        lastDjIsOn = state;
-        if (!started) started = true;
     }
 
 }

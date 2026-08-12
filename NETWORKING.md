@@ -63,6 +63,15 @@ User toggles VIP/DJ
   → Remote clients: OnDeserialization()
 ```
 
+**Known limitation:** the local mutate step happens right after requesting ownership, not after
+`OnOwnershipTransferred` confirms it (ownership transfer is asynchronous — see rule 3 above). If an
+`OnDeserialization()` from the outgoing owner's own in-flight edit arrives during that narrow window,
+it overwrites the local speculative edit before ownership is confirmed; the dirty flag is still set,
+so `OnOwnershipTransferred` re-serializes, but against the now-overwritten array — silently dropping
+the edit. This requires two staff editing within the same few-frame window to trigger, and is
+recoverable by re-toggling. Closing it fully would mean deferring the mutation itself to
+`OnOwnershipTransferred` instead of applying it optimistically.
+
 ---
 
 ## Serialization Throttle
@@ -146,8 +155,8 @@ VIP Manager pattern:
 
 | Event | Manager | UI |
 |-------|---------|-----|
-| `OnPlayerJoined` (remote) | Incremental UI notify only; `NotifyListsForName` if `PlayerHasUiPresence` | Add/update one row |
-| `OnPlayerJoined` (local) | `EvaluateLocalAccess()` + `EvaluateLocalDjAccess()` | Same incremental row path |
+| `OnPlayerJoined` (remote) | Forwards to each UI's `OnPlayerJoined`; no manager-side work otherwise | Add/update one row |
+| `OnPlayerJoined` (local) | `EvaluateLocalAccess(true)` + `EvaluateLocalDjAccess(true)` | Same incremental row path |
 | `OnPlayerLeft` (any) | Prune player name cache; no access/barrier eval | Mark offline or remove row |
 | `OnDeserialization` | Full cache clear + `NotifyLists()` + access eval | Deferred rebuild via manager |
 

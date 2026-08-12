@@ -226,8 +226,9 @@ public class VipManagerTests : UdonSharpBehaviour
             FailTest("Null name should return false for IsDj");
         }
         
-        // Test DJ system state
-        Log($"  DJ System Enabled: True");
+        // Test DJ system state (queries the real synced field rather than assuming a value)
+        bool djSystemEnabled = managerToTest.GetSyncedDjSystemEnabled();
+        Log($"  DJ System Enabled: {djSystemEnabled}");
         PassTest("DJ system state query successful");
     }
     
@@ -272,12 +273,16 @@ public class VipManagerTests : UdonSharpBehaviour
             return;
         }
         
-        // Test that sync methods exist and can be called
+        // Exercise the synced-state accessors used by the sync path. The ownership-transfer /
+        // RequestSerialization throttle logic itself requires a live VRChat network session and
+        // is not covered here — see README.md's manual test flow for that.
         try
         {
-            // These methods should not throw exceptions
-            Log("  Sync system methods callable");
-            PassTest("Sync system initialized");
+            int manualCount = managerToTest.GetManualCount();
+            int djCount = managerToTest.GetSyncedDjCount();
+            bool djSystemEnabled = managerToTest.GetSyncedDjSystemEnabled();
+            Log($"  Manual VIP count: {manualCount}, DJ count: {djCount}, DJ system enabled: {djSystemEnabled}");
+            PassTest("Synced-state accessors callable");
         }
         catch (System.Exception e)
         {

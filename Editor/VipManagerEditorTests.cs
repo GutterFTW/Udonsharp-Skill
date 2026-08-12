@@ -107,7 +107,9 @@ public class VipManagerEditorTests
     public void TestDebugLogConfiguration()
     {
         Assert.IsTrue(manager.enableDebugLogs, "Debug logs should be enabled");
-        Assert.IsNotNull(manager.logColor, "Log color should be configured");
+        // Color is a non-nullable struct, so Assert.IsNotNull would always pass regardless of value;
+        // check against the field's actual default (VipWhitelistManager.cs) instead.
+        Assert.AreEqual(new Color(0f, 1f, 1f, 1f), manager.logColor, "Log color should match its configured default");
         
         Debug.Log("<color=green>✓ PASS:</color> Debug Log Configuration");
     }
@@ -126,8 +128,10 @@ public class VipManagerEditorTests
     [Test]
     public void TestSuperAdminColorConfiguration()
     {
-        Assert.IsNotNull(manager.superAdminNameColor, "Super admin color should be configured");
-        
+        // Color is a non-nullable struct, so Assert.IsNotNull would always pass regardless of value;
+        // check against the field's actual default (VipWhitelistManager.cs) instead.
+        Assert.AreEqual(new Color(0.5f, 0f, 0f, 1f), manager.superAdminNameColor, "Super admin color should match its configured default");
+
         Debug.Log($"<color=green>✓ PASS:</color> Super Admin Color: RGB({manager.superAdminNameColor.r}, {manager.superAdminNameColor.g}, {manager.superAdminNameColor.b})");
     }
 

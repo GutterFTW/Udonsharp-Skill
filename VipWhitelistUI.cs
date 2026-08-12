@@ -41,6 +41,9 @@ public class VipWhitelistUI : UdonSharpBehaviour
 
     private bool _started;
     private RectTransform _contentRect;
+    // Retry budget for waiting on VipWhitelistManager's Start() to inject `manager` (see Start()).
+    private int _managerWaitRetries = 0;
+    private const int MANAGER_WAIT_MAX_RETRIES = 30;
 
     [Header("DJ System")]
     [Tooltip("Assign the UI toggle that controls whether DJ whitelisting logic is enabled.")]
@@ -240,8 +243,21 @@ public class VipWhitelistUI : UdonSharpBehaviour
 
         if (manager == null)
         {
-            // Manager not injected — this UI is not listed in the manager's 'lists[]' array.
-            Debug.LogError("(VIP Manager) VipWhitelistUI: no manager assigned. Add this UI to the manager's lists[] array in the Inspector.");
+            // manager is [HideInInspector] and can only be set by VipWhitelistManager.Start()
+            // injecting itself into this UI's inspector-assigned slot in its lists[] array. That
+            // injection is expected to happen before this Start() runs because VipWhitelistManager
+            // carries [DefaultExecutionOrder(-100)] — but that attribute only orders
+            // Update/LateUpdate/FixedUpdate, not Start() (docs/USharp-22-event-execution-order.md).
+            // Retry for a bounded number of frames instead of permanently disabling this UI in case
+            // that ordering assumption doesn't hold on some client.
+            if (_managerWaitRetries < MANAGER_WAIT_MAX_RETRIES)
+            {
+                _managerWaitRetries++;
+                SendCustomEventDelayedFrames(nameof(RetryStart), 1);
+                return;
+            }
+
+            Debug.LogError("(VIP Manager) VipWhitelistUI: no manager assigned after waiting. Add this UI to the manager's lists[] array in the Inspector.");
             this.enabled = false;
             return;
         }
@@ -261,6 +277,12 @@ public class VipWhitelistUI : UdonSharpBehaviour
         // delegate access control visuals/objects to manager
         manager.EvaluateLocalAccess();
         manager.EvaluateLocalDjAccess();
+    }
+
+    // SendCustomEventDelayedFrames target used by Start() while waiting on manager injection.
+    public void RetryStart()
+    {
+        Start();
     }
 
     private string NormalizeName(string s)
@@ -412,30 +434,27 @@ public class VipWhitelistUI : UdonSharpBehaviour
 
     
 
-    private bool PlayerShouldShowInList(string displayName)
-    {
-        if (_cachedManager == null) return true;
-        string raw = NormalizeRawName(displayName);
-        if (string.IsNullOrEmpty(raw)) return false;
-        return _cachedManager.PlayerHasUiPresence(raw);
-    }
-
     public override void OnPlayerJoined(VRCPlayerApi player)
     {
-        // incremental: add only the joining player row when they have list presence
+        // incremental: add a row for every joining player so staff can grant VIP/DJ access
+        // from the UI. PlayerHasUiPresence gates re-appearance after a leave, not initial join.
         if (!Utilities.IsValid(player)) return;
         string displayName = GetCachedPlayerDisplayName(player);
-        if (!PlayerShouldShowInList(displayName)) return;
         bool authed = IsAuthed(displayName);
         AddRowIfMissing(displayName, true, authed, player.playerId);
-        // If the row already existed (authed player rejoining), AddRowIfMissing returned early
-        // without updating the playerId. Update it now so FindRowIndexByPlayerId works on next leave.
+        // If the row already existed (a permissioned player kept alive by OnPlayerLeft and now
+        // rejoining), AddRowIfMissing returned early without updating the playerId or "Here" toggle
+        // (both were left in their offline state from the earlier leave). Fix both up now.
         string rejoinKey = NormalizeRawName(displayName);
         int rejoinIdx = FindRowIndexByLower(rejoinKey);
         if (rejoinIdx != -1)
         {
             var rejoinRs = rowScripts[rejoinIdx];
-            if (rejoinRs != null) rejoinRs.playerId = player.playerId;
+            if (rejoinRs != null)
+            {
+                rejoinRs.playerId = player.playerId;
+                if (rejoinRs.inWorldToggle != null) rejoinRs.inWorldToggle.SetIsOnWithoutNotify(true);
+            }
         }
         UpdateRowForName(displayName, authed);
         // Manager re-evaluates local VIP/DJ access only when the local player joins.
@@ -454,80 +473,40 @@ public class VipWhitelistUI : UdonSharpBehaviour
 
         string dn = GetCachedPlayerDisplayName(player);
         int pid = player.playerId;
-        
+
         // Remove from display name cache
         RemovePlayerFromDisplayNameCache(pid);
 
-        // Try to find matching row by playerId first (more reliable than displayName)
-        int idxById = -1;
-        if (pid >= 0) idxById = FindRowIndexByPlayerId(pid);
-
-        if (idxById != -1)
+        // Resolve the row by playerId first (more reliable than displayName); fall back to a
+        // displayName lookup if that fails (e.g. playerId was never associated with the row).
+        int idx = pid >= 0 ? FindRowIndexByPlayerId(pid) : -1;
+        if (idx == -1)
         {
-            var rs = rowScripts[idxById];
-            string rawKey = rowKeys[idxById];
-            bool keepRow = _cachedManager != null && _cachedManager.PlayerHasUiPresence(rawKey);
-            if (keepRow)
+            if (string.IsNullOrEmpty(dn)) return;
+            idx = FindRowIndexByLower(NormalizeRawName(dn));
+        }
+        if (idx == -1) return;
+
+        var rs = rowScripts[idx];
+        // rowKeys[] is always stored pre-normalized, so this is the same key PlayerHasUiPresence
+        // would derive from the live displayName, and is what the row is actually keyed by.
+        string rawKey = rowKeys[idx];
+        bool keepRow = _cachedManager != null && _cachedManager.PlayerHasUiPresence(rawKey);
+        if (keepRow)
+        {
+            // mark as not in-world and clear cached playerId so row remains for rejoin
+            if (rs != null && rs.inWorldToggle != null)
             {
-                // mark as not in-world and clear cached playerId so row remains for rejoin
-                if (rs != null && rs.inWorldToggle != null)
-                {
-                    rs.inWorldToggle.SetIsOnWithoutNotify(false);
-                }
-                if (rs != null) rs.playerId = -1;
+                rs.inWorldToggle.SetIsOnWithoutNotify(false);
             }
-            else
-            {
-                // not authed -> remove row
-                // Add bounds checking for idxById before accessing arrays
-                string nameToRemove = null;
-                
-                // Always check bounds first to prevent index out of range
-                if (idxById >= 0 && idxById < rowCount && idxById < rowKeys.Length)
-                {
-                    if (rs != null && rs.nameText != null)
-                    {
-                        nameToRemove = rs.nameText.text;
-                    }
-                    else
-                    {
-                        nameToRemove = rowKeys[idxById];
-                    }
-                }
-                
-                if (!string.IsNullOrEmpty(nameToRemove))
-                {
-                    RemoveRow(nameToRemove);
-                }
-            }
+            if (rs != null) rs.playerId = -1;
         }
         else
         {
-            // Fallback: match by displayName if playerId lookup fails
-            if (string.IsNullOrEmpty(dn))
+            string nameToRemove = (rs != null && rs.nameText != null) ? rs.nameText.text : rawKey;
+            if (!string.IsNullOrEmpty(nameToRemove))
             {
-                return;
-            }
-
-            bool keepRow = _cachedManager != null && _cachedManager.PlayerHasUiPresence(NormalizeRawName(dn));
-            if (keepRow)
-            {
-                string normalized = NormalizeRawName(dn);
-                int idx = FindRowIndexByLower(normalized);
-                if (idx != -1)
-                {
-                    var rs2 = rowScripts[idx];
-                    if (rs2 != null && rs2.inWorldToggle != null)
-                    {
-                        rs2.inWorldToggle.SetIsOnWithoutNotify(false);
-                    }
-                    // Clear stale playerId when marking offline.
-                    if (rs2 != null) rs2.playerId = -1;
-                }
-            }
-            else
-            {
-                RemoveRow(dn);
+                RemoveRow(nameToRemove);
             }
         }
     }
@@ -691,8 +670,6 @@ public class VipWhitelistUI : UdonSharpBehaviour
             }
             if (already) continue;
 
-            if (!PlayerShouldShowInList(displayName)) continue;
-            
             // ensure row exists for this player (will add to bottom if missing)
             bool authed = IsAuthed(displayName);
             int existingIdx = FindRowIndexByLower(key);
@@ -892,7 +869,8 @@ public class VipWhitelistUI : UdonSharpBehaviour
                 if (dj != null)
                 {
                     bool isDj = _cachedManager != null ? _cachedManager.IsDj(raw) : false;
-                    // keep polling state consistent: update rowScript when available to avoid PollToggleStates treating this as a user event
+                    // Update rowScript's cached toggle state via the WithoutNotify setter so this programmatic
+                    // change doesn't get misread as a user edit the next time AuthToggled()/DJToggled() fires.
                     if (rs != null) rs.SetDjStateWithoutNotify(isDj);
                     else if (dj.isOn != isDj) dj.SetIsOnWithoutNotify(isDj);
                 }
@@ -973,13 +951,6 @@ public class VipWhitelistUI : UdonSharpBehaviour
         return -1;
     }
 
-    // Only role system + superadmin supported; manager implements default logic if needed
-    private bool CanLocalEditAny()
-    {
-        if (manager != null) return manager.CanLocalEditAny();
-        return false;
-    }
-
     private bool CanLocalEditTarget(string targetName)
     {
         if (manager != null) return manager.CanLocalEditTarget(targetName);
@@ -1011,12 +982,12 @@ public class VipWhitelistUI : UdonSharpBehaviour
         Toggle authToggle = null;
         Toggle inWorldToggle = null;
         Toggle foundDjToggle = null;
-        // find toggles by name hints first
-        inWorldToggle = FindToggleByName(go, new string[] { "here", "inworld", "present" });
-        authToggle = FindToggleByName(go, new string[] { "auth", "allow" });
-        foundDjToggle = FindToggleByName(go, DJ_TOGGLE_HINTS);
-        // get all toggles in the row
+        // Fetch the row's toggles once and reuse the array for all three name-hint lookups plus the
+        // fallback below, instead of walking the hierarchy separately for each (4 walks -> 1).
         Toggle[] toggles = go.GetComponentsInChildren<Toggle>(true);
+        inWorldToggle = FindToggleInArray(toggles, new string[] { "here", "inworld", "present" });
+        authToggle = FindToggleInArray(toggles, new string[] { "auth", "allow" });
+        foundDjToggle = FindToggleInArray(toggles, DJ_TOGGLE_HINTS);
         // fallback: assign first/second toggles
         if (authToggle == null && inWorldToggle != null) authToggle = inWorldToggle;
         if (inWorldToggle == null && toggles.Length > 1) inWorldToggle = toggles[1];
@@ -1078,7 +1049,8 @@ public class VipWhitelistUI : UdonSharpBehaviour
         if (authToggle != null)
         {
             // set without notifying listeners to avoid firing events
-            // defer setting the internal poll state until rowScript is wired so PollToggleStates won't treat this as user input
+            // defer syncing the row's cached toggle state until rowScript is wired below, so the
+            // eventual AuthToggled()/DJToggled() call doesn't misread this as a user edit
             authToggle.SetIsOnWithoutNotify(authed);
             string rawName = rowKeys[rowCount];
             bool canEditTarget = CanLocalEditTarget(rawName);
@@ -1135,8 +1107,8 @@ public class VipWhitelistUI : UdonSharpBehaviour
             // assign found DJ toggle to row script for polling
             rowScript.djToggle = foundDjToggle;
 
-            // Now that the rowScript is wired, update its internal poll-tracking state to match the visual toggles we set earlier.
-            // This prevents PollToggleStates from misinterpreting programmatic updates as user toggles.
+            // Now that the rowScript is wired, sync its cached toggle state to match the visual toggles we set earlier.
+            // This prevents the next AuthToggled()/DJToggled() call from misinterpreting this programmatic update as a user toggle.
             if (rowScript.authToggle != null) rowScript.SetAuthStateWithoutNotify(rowScript.authToggle.isOn);
             if (rowScript.djToggle != null) rowScript.SetDjStateWithoutNotify(rowScript.djToggle.isOn);
          }
@@ -1182,8 +1154,14 @@ public class VipWhitelistUI : UdonSharpBehaviour
     private Toggle FindToggleByName(GameObject root, string[] hints)
     {
         if (!Utilities.IsValid(root) || hints == null || hints.Length == 0) return null;
-        var toggles = root.GetComponentsInChildren<Toggle>(true);
-        if (toggles == null) return null;
+        return FindToggleInArray(root.GetComponentsInChildren<Toggle>(true), hints);
+    }
+
+    // Same name-hint search as FindToggleByName, but against an already-fetched Toggle[] so callers
+    // that need multiple lookups on the same GameObject can share a single GetComponentsInChildren call.
+    private Toggle FindToggleInArray(Toggle[] toggles, string[] hints)
+    {
+        if (toggles == null || hints == null || hints.Length == 0) return null;
         for (int i = 0; i < toggles.Length; i++)
         {
             var toggle = toggles[i];
@@ -1500,14 +1478,22 @@ public class VipWhitelistUI : UdonSharpBehaviour
             {
                 var rs = rowScripts[idx];
                 string key = rowKeys[idx];
-                
+
+                // Resync the toggle to the real DJ state in case DjAdd/DjRemove silently no-op'd
+                // (permission denied, Read-Only target, or the synced DJ list is at capacity) — without
+                // this, the toggle would visually show a state that was never actually applied.
+                if (rs != null && rs.djToggle != null && _cachedManager != null)
+                {
+                    rs.SetDjStateWithoutNotify(_cachedManager.IsDj(key));
+                }
+
                 // Update display name with DJ prefix if needed
                 if (rs != null && rs.nameText != null && _cachedManager != null)
                 {
                     string display = BuildDisplayName(key);
                     if (rs.nameText.text != display) rs.nameText.text = display;
                 }
-                
+
                 // Update DJ toggle interactability
                 SetRowDjInteractable(rowObj, GetCachedManagerCanManageDj(), idx);
             }

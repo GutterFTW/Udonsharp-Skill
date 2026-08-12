@@ -64,7 +64,7 @@ VIP Manager is a role-based VIP and manual whitelist system for VRChat worlds th
 4. **Constants**: UPPER_SNAKE_CASE (e.g., `ROLE_MEMBER_CAP`, `ACCESS_CACHE_SIZE`)
 5. **Public Methods**: PascalCase (e.g., `RegisterList`, `GetRoleIndex`)
 6. **Private Methods**: PascalCase (e.g., `EnsureRoleBuffers`, `CompactSyncedManual`)
-7. **Udon Event Receivers**: Prefix with underscore for UI callbacks (e.g., `_OnAuthToggle`, `_OnRowToggled`)
+7. **Udon Event Receivers**: Prefix with underscore for UI callbacks (e.g., `_OnRowToggled`)
 
 ### Code Style
 

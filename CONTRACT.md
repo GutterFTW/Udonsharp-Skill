@@ -63,7 +63,6 @@ This document defines the **public integration surface** of `VipWhitelistManager
 VipWhitelistManager.MAX_ROWS          // 256
 VipWhitelistManager.ROW_POOL_SIZE     // 256
 VipWhitelistManager.PLAYER_BUF_SIZE   // 128
-VipWhitelistManager.LOG_THROTTLE_SIZE // 64
 ```
 
 ---
@@ -82,7 +81,7 @@ All name parameters accept display names with optional role prefixes (e.g. `(VIP
 | `IsInstanceInitialOwner(VRCPlayerApi player)` | `bool` | Player started the instance (synced) |
 | `IsInstanceInitialOwner(string name)` | `bool` | Matches permanent synced `initialOwner` name |
 | `GetInitialOwnerName()` | `string` | Synced normalized name of instance starter |
-| `PlayerHasUiPresence(string name)` | `bool` | Whether player should appear in VIP UI |
+| `PlayerHasUiPresence(string name)` | `bool` | Whether an offline/absent player should keep a pinned UI row (role, manual lists, Super Admin, instance starter). Not used to gate in-world join rows — every present player gets a row. |
 
 ### Role metadata
 
@@ -233,7 +232,6 @@ Row methods forward to `VipWhitelistUI._OnRowToggled` / `DJToggled`, which call 
 |--------|---------|
 | `AuthToggled()` | VIP toggle event entry point (prefab wiring) |
 | `DJToggled()` | DJ toggle event entry point (prefab wiring) |
-| `_OnAuthToggle(bool isOn)` | Alternative VIP toggle handler with bool param |
 | `SetAuthStateWithoutNotify(bool state)` | Set VIP toggle without firing callbacks |
 | `SetDjStateWithoutNotify(bool state)` | Set DJ toggle without firing callbacks |
 
@@ -288,10 +286,10 @@ Role member arrays are **local only** (loaded from URLs, not networked).
 3. **Read-Only enforcement** — Staff cannot edit Read-Only role members; Super Admins may override (own Super Admin row stays non-interactable).
 4. **Super Admin UI** — Super Admin VIP toggles are non-interactable on their own row.
 5. **initialOwner** — Recorded once from `Networking.InstanceOwner` or first joiner; pinned UI row with `*` even when offline.
-6. **UI rows** — Shown only for players with permissions (role, manual lists, Super Admin, instance starter); passer-bys pruned on leave.
+6. **UI rows** — Shown for every currently in-world player (so staff can grant VIP/DJ from a fresh row), plus offline entries with permissions (role, manual lists, Super Admin, instance starter); permission-less rows pruned on leave.
 7. **Manual lists** — Persist until revoked; not cleared when player leaves.
 8. **Local-only gating** — Barrier object state is evaluated per client from synced data + locally loaded roles.
-9. **Single owner serialization** — Editors take object ownership before writing synced fields; best-effort manual sync.
+9. **Single owner serialization** — Editors request object ownership before writing synced fields; best-effort manual sync. Since ownership transfer is asynchronous, there's a narrow window where the write can still race an incoming update from the outgoing owner — see NETWORKING.md's "Known limitation".
 10. **One manager per world** — Exactly one `VipWhitelistManager` per scene.
 
 ---

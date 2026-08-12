@@ -118,7 +118,7 @@ Charlie
 - Up to **256 members** stored per role (`ROLE_MEMBER_CAP`).
 - Up to **1000 tokens** parsed per URL load; excess tokens are skipped.
 
-Reload happens per instance when the manager owner fetches role URLs at startup.
+Every client fetches the role URLs independently at its own `Start()` — not just the manager owner (see [Networking & Persistence](#networking--persistence) below).
 
 ---
 
@@ -208,7 +208,7 @@ Ownership is taken on edits; changes serialize with a 10-frame throttle and clog
 ### Recommended manual test flow
 
 1. **Build & Test** (or Build & Reload) with debug logging enabled on the manager if needed.
-2. **Single client first** — confirm role Pastebin loads, barriers toggle, UI rows appear for permitted players only.
+2. **Single client first** — confirm role Pastebin loads, barriers toggle, and a UI row appears for every in-world player (not just permitted ones, so staff can grant access).
 3. **Two clients** — verify VIP/DJ toggle changes sync (`OnDeserialization`), DJ system toggle syncs, and barriers update on both clients.
 4. **Late joiner** — third client receives current manual lists and correct barrier state.
 5. **Instance starter** — confirm `*` pinned row and DJ management rights persist when the creator leaves and rejoins.

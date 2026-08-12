@@ -202,6 +202,14 @@ public class VipWhitelistManagerEditor : Editor
                 var roProp = roleCanReadOnlyProp.GetArrayElementAtIndex(newIndex);
                 roProp.boolValue = false;
             }
+            if (roleCanDjProp != null)
+            {
+                // Unity's array-resize duplicates the previous last element's value into new slots
+                // rather than zero-initializing, so this must be set explicitly like the other
+                // permission arrays above — otherwise a new role can silently inherit DJ access.
+                var djProp = roleCanDjProp.GetArrayElementAtIndex(newIndex);
+                djProp.boolValue = false;
+            }
 
             serializedObject.ApplyModifiedProperties();
             l.index = newIndex;
