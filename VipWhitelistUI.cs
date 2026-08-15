@@ -344,7 +344,13 @@ public class VipWhitelistUI : UdonSharpBehaviour
         return NormalizeName(StripAllRolePrefixes(displayed));
     }
 
-    // Strip a leading role prefix in parentheses from a displayed name, e.g. "(Role) Alice" -> "Alice"
+    // Strip a leading role prefix in parentheses from a displayed name, e.g. "(Role) Alice" -> "Alice".
+    // Only strips prefixes recognized as one of the system's own tags (IsKnownDisplayPrefix) — same
+    // gating as StripAllRolePrefixes/StripRolePrefix — so a real player whose display name naturally
+    // starts with an unrelated "(...)" (e.g. "(Crew) Jake") isn't mangled here. BuildDisplayName and
+    // AddRowIfMissing derive a row's actual identity key from this function's result, so leaving it
+    // ungated would silently diverge a row's key from the player's real normalized identity even
+    // though StripAllRolePrefixes/StripRolePrefix are correctly gated everywhere else.
     private string GetNameWithoutRolePrefix(string displayed)
     {
         if (string.IsNullOrEmpty(displayed)) return displayed;
@@ -355,10 +361,14 @@ public class VipWhitelistUI : UdonSharpBehaviour
             int idx = t.IndexOf(')');
             if (idx > 0 && idx + 1 < t.Length)
             {
-                string rest = t.Substring(idx + 1).Trim();
-                return rest;
+                string tag = t.Substring(1, idx - 1);
+                if (IsKnownDisplayPrefix(tag))
+                {
+                    string rest = t.Substring(idx + 1).Trim();
+                    return rest;
+                }
             }
-            // if no closing paren found, fallthrough
+            // if no closing paren found, or the prefix isn't a known system tag, fall through unchanged
         }
         return t;
     }
