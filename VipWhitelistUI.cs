@@ -292,7 +292,31 @@ public class VipWhitelistUI : UdonSharpBehaviour
         return s.Trim();
     }
 
-    // Strip any leading parenthesized prefixes repeatedly, e.g. "(DJ) (Role) Alice" -> "Alice"
+    // Local fallback tag check used only in the brief window before `_cachedManager` is assigned
+    // (manager injection happens in VipWhitelistManager.Start(), which is not guaranteed to run
+    // before this UI's own Start() per docs/USharp-22-event-execution-order.md). Once _cachedManager
+    // is set, IsKnownDisplayPrefix below prefers the manager's role-aware check so configured role
+    // tags (e.g. "Patreon", "EC") are also recognized, not just the built-in DJ/VIP/Super Admin tags.
+    private bool IsKnownPrefixTagFallback(string tag)
+    {
+        if (string.IsNullOrEmpty(tag)) return false;
+        string t = tag.Trim().ToLowerInvariant();
+        if (t == "dj") return true;
+        if (t == "vip") return true;
+        if (t.Contains("super") && t.Contains("admin")) return true;
+        return false;
+    }
+
+    private bool IsKnownDisplayPrefix(string tag)
+    {
+        if (_cachedManager != null) return _cachedManager.IsKnownDisplayPrefix(tag);
+        return IsKnownPrefixTagFallback(tag);
+    }
+
+    // Strip any leading parenthesized prefixes repeatedly, e.g. "(DJ) (Role) Alice" -> "Alice" — but
+    // only prefixes recognized as one of the system's own tags (IsKnownDisplayPrefix), so a player's
+    // real display name containing an unrelated "(...)" (e.g. a clan/crew tag) isn't mistaken for a
+    // role/DJ/Super-Admin marker and collapsed onto a different player's identity.
     // Also strips trailing asterisk used for instance owner marker
     private string StripAllRolePrefixes(string displayed)
     {
@@ -302,6 +326,8 @@ public class VipWhitelistUI : UdonSharpBehaviour
         {
             int idx = t.IndexOf(')');
             if (idx <= 0) break;
+            string tag = t.Substring(1, idx - 1);
+            if (!IsKnownDisplayPrefix(tag)) break;
             if (idx + 1 >= t.Length) { t = ""; break; }
             t = t.Substring(idx + 1).Trim();
         }
@@ -1009,7 +1035,7 @@ public class VipWhitelistUI : UdonSharpBehaviour
 
         // determine colors once
         Color nameColor = _templateNameColor;
-            if (manager != null)
+            if (_cachedManager != null)
             {
                 // raw is the cached normalized name without display prefixes
                 string raw = rowKeys[rowCount];

@@ -1053,6 +1053,22 @@ public class VipWhitelistManager : UdonSharpBehaviour
             }
         }
 
+        // Always surface roster truncation, regardless of enableDebugLogs, so staff notice a role's
+        // Pastebin list silently dropped members past the member/token cap instead of those players
+        // being denied VIP/DJ access with no signal anywhere in the console.
+        bool memberCapped = currentMemberCount >= ROLE_MEMBER_CAP;
+        if (memberCapped || truncated)
+        {
+            string cappedRoleName = (roleNames != null && roleIndex >= 0 && roleIndex < roleNames.Length)
+                ? roleNames[roleIndex]
+                : ("role_" + roleIndex.ToString());
+            string reason = memberCapped
+                ? ("hit the " + ROLE_MEMBER_CAP.ToString() + "-member cap")
+                : (tokensLen.ToString() + " lines exceeds the " + MAX_PARSE_TOKENS.ToString() + "-line parse cap");
+            DebugLogError("ParseRole: role '" + cappedRoleName + "' roster was TRUNCATED (" + reason +
+                "). Some names in the source list were NOT loaded, and those players will be denied access.");
+        }
+
         // Log parsed members and role VIP permission
         if (enableDebugLogs)
         {
@@ -1102,7 +1118,38 @@ public class VipWhitelistManager : UdonSharpBehaviour
         return s.Trim();
     }
 
-    // Strip a leading role prefix in parentheses from a displayed name, e.g. "(Role) Alice" -> "Alice"
+    // Whether a parenthesized prefix "tag" is one of this system's own display tags ("DJ",
+    // "Super Admin", "VIP", or a configured role name) rather than arbitrary text a player put in
+    // their own display name (e.g. a clan/crew tag). Gates how far StripRolePrefix strips a leading
+    // "(...)" so a crafted name like "(xyz) Gutter" can't normalize down to match a real whitelisted
+    // name it isn't. Only reads the raw `roleNames` inspector array (always populated, no
+    // EnsureRoleBuffersOnce dependency) since EnsureRoleBuffersOnce itself calls StripRolePrefix
+    // indirectly (via the super-admin-whitelist normalization) and must not recurse into it.
+    public bool IsKnownDisplayPrefix(string tag)
+    {
+        if (string.IsNullOrEmpty(tag)) return false;
+        string t = NormalizeForCompare(tag);
+        if (string.IsNullOrEmpty(t)) return false;
+        if (t == "dj") return true;
+        if (t == "vip") return true;
+        if (t.Contains("super") && t.Contains("admin")) return true;
+        if (roleNames != null)
+        {
+            int rlen = roleNames.Length;
+            for (int i = 0; i < rlen; i++)
+            {
+                string rn = roleNames[i];
+                if (string.IsNullOrEmpty(rn)) continue;
+                if (NormalizeForCompare(rn) == t) return true;
+            }
+        }
+        return false;
+    }
+
+    // Strip a leading role prefix in parentheses from a displayed name, e.g. "(Role) Alice" -> "Alice".
+    // Only strips prefixes recognized by IsKnownDisplayPrefix so a player's real display name
+    // containing an unrelated "(...)" isn't mistaken for a role/DJ/Super-Admin marker and collapsed
+    // onto a different player's identity.
     private string StripRolePrefix(string displayed)
     {
         if (string.IsNullOrEmpty(displayed)) return displayed;
@@ -1112,6 +1159,8 @@ public class VipWhitelistManager : UdonSharpBehaviour
         {
             int idx = t.IndexOf(')');
             if (idx <= 0) break;
+            string tag = t.Substring(1, idx - 1);
+            if (!IsKnownDisplayPrefix(tag)) break;
             if (idx + 1 >= t.Length) { t = ""; break; }
             t = t.Substring(idx + 1).Trim();
         }

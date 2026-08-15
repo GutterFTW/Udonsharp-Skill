@@ -21,15 +21,36 @@ public class VipWhitelistRow : UdonSharpBehaviour
     [HideInInspector] public bool cachedIsSuperAdmin = false;
 
     private bool lastIsOn;
+    private bool lastDjIsOn;
 
     void Start()
     {
         if (authToggle != null) lastIsOn = authToggle.isOn;
+        if (djToggle != null) lastDjIsOn = djToggle.isOn;
     }
 
     // Called from DJ toggle in the row prefab via SendCustomEvent("DJToggled") on the row behaviour
     public void DJToggled()
     {
+        // If Unity didn't flip the visual state (isOn == lastDjIsOn), assume the user intended to
+        // toggle and flip it ourselves. Mirrors AuthToggled()'s self-correction below so a misread
+        // first click doesn't require a second click to take effect. VipWhitelistUI.DJToggled()
+        // re-reads djToggle.isOn after this, so correcting the toggle here is sufficient.
+        if (djToggle != null)
+        {
+            bool isOn = djToggle.isOn;
+            if (isOn == lastDjIsOn)
+            {
+                bool desired = !lastDjIsOn;
+                djToggle.SetIsOnWithoutNotify(desired);
+                lastDjIsOn = desired;
+            }
+            else
+            {
+                lastDjIsOn = isOn;
+            }
+        }
+
         // Prefer using cachedRawName (normalized/stripped) when available to avoid relying on displayed text
         string playerName = null;
         if (!string.IsNullOrEmpty(cachedRawName)) playerName = cachedRawName;
@@ -87,6 +108,7 @@ public class VipWhitelistRow : UdonSharpBehaviour
         {
             djToggle.SetIsOnWithoutNotify(state);
         }
+        lastDjIsOn = state;
     }
 
 }
