@@ -149,7 +149,7 @@ bool HasDjAccess(string name)
 
 ## Mutation API
 
-Callable from UI or other scripts. All mutations take ownership and trigger manual serialization.
+Callable from UI or other scripts. All mutations take ownership and trigger manual serialization; edits made before ownership confirms are staged and applied (permissions re-checked) when ownership transfer lands.
 
 | Method | Effect |
 |--------|--------|
@@ -285,11 +285,11 @@ Role member arrays are **local only** (loaded from URLs, not networked).
 2. **Deduplication** — Manual VIP/DJ lists deduplicate case-insensitively on sync.
 3. **Read-Only enforcement** — Staff cannot edit Read-Only role members; Super Admins may override (own Super Admin row stays non-interactable).
 4. **Super Admin UI** — Super Admin VIP toggles are non-interactable on their own row.
-5. **initialOwner** — Recorded once from `Networking.InstanceOwner` or first joiner; pinned UI row with `*` even when offline.
+5. **initialOwner** — Recorded once from `Networking.InstanceOwner` only (stays empty when the creator can't be identified); pinned UI row with `*` when set, even when offline.
 6. **UI rows** — Shown for every currently in-world player (so staff can grant VIP/DJ from a fresh row), plus offline entries with permissions (role, manual lists, Super Admin, instance starter); permission-less rows pruned on leave.
 7. **Manual lists** — Persist until revoked; not cleared when player leaves.
 8. **Local-only gating** — Barrier object state is evaluated per client from synced data + locally loaded roles.
-9. **Single owner serialization** — Editors request object ownership before writing synced fields; best-effort manual sync. Since ownership transfer is asynchronous, there's a narrow window where the write can still race an incoming update from the outgoing owner — see NETWORKING.md's "Known limitation".
+9. **Single owner serialization** — Editors request object ownership before writing synced fields; non-owner edits are staged in a pending buffer and applied when ownership transfer confirms (see NETWORKING.md's ownership flow), then sync is best-effort with the 10-frame throttle.
 10. **One manager per world** — Exactly one `VipWhitelistManager` per scene.
 
 ---
@@ -349,6 +349,14 @@ Contract compliance is validated through **manual in-instance testing** in VRCha
 ---
 
 ## Changelog
+
+### 1.1 (August 2026)
+
+- Non-owner edits (VIP/DJ toggles) are staged and applied on confirmed ownership instead of optimistic synced-array writes; closes the previously documented two-editor race.
+- `initialOwner` records only the instance creator (`Networking.InstanceOwner`); no first-joiner fallback, so the role can't be claimed by racing object ownership.
+- Display-name text (e.g. a literal `(Super Admin)` prefix) no longer grants Super Admin; identity is whitelist/role-membership only.
+- Roles sharing one Pastebin URL all populate from a single download; the URL-to-role match parses every matching role.
+- DJ list at capacity logs a warning; a `maxSyncedManual <= 0` fallback is surfaced in the console.
 
 ### 1.0 (July 2026)
 

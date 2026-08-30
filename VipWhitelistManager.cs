@@ -84,6 +84,19 @@ public class VipWhitelistManager : UdonSharpBehaviour
     private int _lastSerializationFrame = -MIN_SERIALIZATION_FRAME_INTERVAL;
     private bool _serializationRetryScheduled = false;
 
+    // Staged pending edits for non-owner staff: changes wait until ownership transfer actually
+    // confirms this client as owner before touching [UdonSynced] state, so a concurrent
+    // OnDeserialization() from the previous owner can't silently overwrite a speculative local
+    // write (previously the "known limitation" documented in NETWORKING.md). Kinds: PENDING_EDIT_VIP / PENDING_EDIT_DJ.
+    private const int PENDING_EDIT_CAP = 32;
+    private const int PENDING_EDIT_VIP = 0;
+    private const int PENDING_EDIT_DJ = 1;
+    private string[] pendingEditNames = new string[PENDING_EDIT_CAP];
+    private bool[] pendingEditIsAdd = new bool[PENDING_EDIT_CAP];
+    private int[] pendingEditKinds = new int[PENDING_EDIT_CAP];
+    private int pendingEditCount = 0;
+    private bool _pendingApplyScheduled = false;
+
     private bool lastLocalAuthed;
     private bool lastLocalDj = false;
     private int _lastDjEvalFrame = -1;
@@ -386,20 +399,18 @@ public class VipWhitelistManager : UdonSharpBehaviour
         if (!string.IsNullOrEmpty(initialOwner)) return;
         if (!Networking.IsOwner(gameObject)) return;
 
-        string ownerName = null;
+        // Only the actual instance creator may be recorded as initialOwner. VRChat exposes the
+        // creator via Networking.InstanceOwner when it can identify one and null otherwise
+        // (Public/Group/Build & Test, or creator not in the instance). The old fallback —
+        // self-recording from object ownership when InstanceOwner was null — let whoever owned
+        // the object during that window (a slow join, clogged network, or a deliberate early
+        // ownership grab by any player) claim permanent DJ-manage privileges. Fail closed
+        // instead: if the creator can't be identified, initialOwner stays empty and nobody gets
+        // the instance-starter role (Super Admin / role permissions still work).
         VRCPlayerApi instanceOwner = Networking.InstanceOwner;
-        if (Utilities.IsValid(instanceOwner))
-        {
-            ownerName = NormalizeNameFromPlayer(instanceOwner);
-        }
-        else
-        {
-            VRCPlayerApi lp = GetLocalPlayer();
-            if (Utilities.IsValid(lp))
-            {
-                ownerName = NormalizeNameFromPlayer(lp);
-            }
-        }
+        if (!Utilities.IsValid(instanceOwner)) return;
+
+        string ownerName = NormalizeNameFromPlayer(instanceOwner);
 
         if (string.IsNullOrEmpty(ownerName)) return;
 
@@ -729,6 +740,30 @@ public class VipWhitelistManager : UdonSharpBehaviour
                     string rUrl = urlObj.Get();
                     if (!string.IsNullOrEmpty(rUrl))
                     {
+                        // Duplicate-URL guard: if an earlier role already loaded this exact URL,
+                        // don't fetch it again. Previously every duplicate download matched only
+                        // the first role in OnStringLoadSuccess (first-match + break), so with two
+                        // roles on one pastebin the second role's roster stayed empty forever with
+                        // no warning. One download + parse-into-every-matching-role handles it.
+                        bool alreadyLoaded = false;
+                        for (int j = 0; j < i; j++)
+                        {
+                            if (rolePastebinUrls.Length <= j) continue;
+                            var prevUrl = rolePastebinUrls[j];
+                            if (prevUrl == null) continue;
+                            string prevStr = prevUrl.Get();
+                            if (!string.IsNullOrEmpty(prevStr) && prevStr == rUrl)
+                            {
+                                alreadyLoaded = true;
+                                if (enableDebugLogs)
+                                {
+                                    DebugLog("Role " + i.ToString() + " shares its Pastebin URL with role " + j.ToString() + "; the shared download will populate both roles.");
+                                }
+                                break;
+                            }
+                        }
+                        if (alreadyLoaded) continue;
+
                         if (udonBeh != null)
                         {
                             if (enableDebugLogs)
@@ -809,6 +844,13 @@ public class VipWhitelistManager : UdonSharpBehaviour
         {
             EvaluateLocalAccess(true);
             EvaluateLocalDjAccess(true);
+        }
+
+        // If the instance creator wasn't resolvable at Start() (e.g. they join after us), record
+        // initialOwner as soon as they appear — owner-gated inside TryRecordInitialOwnerOnce.
+        if (string.IsNullOrEmpty(initialOwner) && Networking.IsOwner(gameObject))
+        {
+            TryRecordInitialOwnerOnce();
         }
     }
 
@@ -905,13 +947,6 @@ public class VipWhitelistManager : UdonSharpBehaviour
                     }
                     ParseRole(text, i);
                     handled = true;
-                    // Increment version so NotifyLists forces a full rebuild on all clients
-                    if (Networking.IsOwner(gameObject))
-                    {
-                        roleListVersion++;
-                        manualDirty = true;
-                    }
-                    break;
                 }
             }
         }
@@ -920,6 +955,14 @@ public class VipWhitelistManager : UdonSharpBehaviour
         {
             // Not a managed role URL; ignore
             DebugLog("Received string load for unrecognized URL: " + (srcUrl ?? "(null)"));
+        }
+
+        // Increment version so NotifyLists forces a full rebuild on all clients (once per load,
+        // after parsing every role sharing the matched URL)
+        if (handled && Networking.IsOwner(gameObject))
+        {
+            roleListVersion++;
+            manualDirty = true;
         }
 
         NotifyLists();
@@ -1107,7 +1150,15 @@ public class VipWhitelistManager : UdonSharpBehaviour
     private int GetEffectiveMaxSyncedManual()
     {
         int m = maxSyncedManual;
-        if (m <= 0) m = 256;
+        if (m <= 0)
+        {
+            // Surface the silent fallback so a misconfigured inspector value isn't invisible.
+            if (enableDebugLogs)
+            {
+                DebugLogWarning("maxSyncedManual was " + m.ToString() + "; falling back to the default 256.");
+            }
+            m = 256;
+        }
         return m;
     }
 
@@ -1260,7 +1311,8 @@ public class VipWhitelistManager : UdonSharpBehaviour
     private bool IsSuperAdmin(VRCPlayerApi player)
     {
         if (!Utilities.IsValid(player)) return false;
-        // Use cached displayName (not normalized) so IsSuperAdmin(string) can detect role prefixes
+        // Use cached displayName (not normalized) so IsSuperAdmin(string) can strip known system
+        // prefixes before the whitelist/role comparison
         string displayName = GetCachedDisplayName(player);
         if (string.IsNullOrEmpty(displayName)) return false;
         return IsSuperAdmin(displayName);
@@ -1613,7 +1665,9 @@ public class VipWhitelistManager : UdonSharpBehaviour
         return -1;
     }
 
-    // Check if a name is a configured super admin
+    // Check if a name is a configured super admin (whitelist entry or "Super Admin" role member).
+    // Display-name text like a literal "(Super Admin)" prefix does NOT grant this — identity is
+    // membership-only (see the NOTE inside).
     public bool IsSuperAdmin(string name)
     {
         if (string.IsNullOrEmpty(name)) return false;
@@ -1636,52 +1690,11 @@ public class VipWhitelistManager : UdonSharpBehaviour
             }
         }
         
-        // Check for explicit role prefix like "(Super Admin) Alice"
-        string trimmed = name.Trim();
-        if (trimmed.Length > 0 && trimmed[0] == '(')
-        {
-            int idx = trimmed.IndexOf(')');
-            if (idx > 0)
-            {
-                string prefix = trimmed.Substring(1, idx - 1).Trim();
-                if (!string.IsNullOrEmpty(prefix))
-                {
-                    string prefixLower = prefix.ToLowerInvariant();
-                    if (prefixLower.Contains("super") && prefixLower.Contains("admin"))
-                    {
-                        // Store in cache before returning (only if cache is initialized)
-                        if (_isSuperAdminCacheKeys != null && _isSuperAdminCacheVals != null)
-                        {
-                            int cacheLen = _isSuperAdminCacheKeys.Length;
-                            int store;
-                            if (_isSuperAdminCacheCount < cacheLen)
-                            {
-                                // Cache not full yet - append new entry
-                                store = _isSuperAdminCacheCount++;
-                            }
-                            else
-                            {
-                                // Cache full - evict oldest entry using circular buffer
-                                store = _isSuperAdminCacheNextEvict;
-                                _isSuperAdminCacheNextEvict = (_isSuperAdminCacheNextEvict + 1) % cacheLen;
-                                if (enableDebugLogs)
-                                {
-                                    string evictedKey = _isSuperAdminCacheKeys[store];
-                                    if (!string.IsNullOrEmpty(evictedKey))
-                                    {
-                                        DebugLog("IsSuperAdmin cache full (" + cacheLen.ToString() + " entries) - evicting oldest entry: '" + evictedKey + "'");
-                                    }
-                                }
-                            }
-                            _isSuperAdminCacheKeys[store] = keyNorm;
-                            _isSuperAdminCacheVals[store] = true;
-                        }
-                        return true;
-                    }
-                }
-            }
-        }
-
+        // NOTE: display-name text never grants privileges. A name that literally starts with
+        // "(Super Admin)"-style text is NOT super admin — identity comes only from the
+        // superAdminWhitelist or membership in the "Super Admin" role (checked below). Genuine
+        // prefixed display names still resolve correctly because StripRolePrefix above removes
+        // known system tags before the whitelist/role comparison.
         EnsureRoleBuffersOnce();
 
         // keyNorm is already lowercase from NormalizeForCompare above; no need to call ToLowerInvariant() again.
@@ -1848,19 +1861,104 @@ public class VipWhitelistManager : UdonSharpBehaviour
         return true;
     }
 
-    // Manual DJ list management
-    public void DjAdd(string exact)
+    // --- Pending-edit staging (see field comments near the top of this class) ---
+
+    // Stage an edit for application once this client actually owns the object.
+    private void StagePendingEdit(string exact, bool isAdd, int kind)
     {
         if (string.IsNullOrEmpty(exact)) return;
-        if (!CanLocalManageDjTarget(exact)) return;
-
-        // Request ownership before mutating synced state, matching the pattern used by
-        // OnRowToggled/ManualAdd for the VIP list (this was previously reversed here).
-        VRCPlayerApi lpAdd = GetLocalPlayer();
-        if (Utilities.IsValid(lpAdd) && !Networking.IsOwner(gameObject))
+        // Collapse re-staged edits of the same target/kind to the latest intent.
+        for (int i = 0; i < pendingEditCount; i++)
         {
-            Networking.SetOwner(lpAdd, gameObject);
+            if (pendingEditKinds[i] == kind && pendingEditNames[i] == exact)
+            {
+                pendingEditIsAdd[i] = isAdd;
+                SchedulePendingEditApplication(1);
+                return;
+            }
         }
+        if (pendingEditCount >= PENDING_EDIT_CAP)
+        {
+            DebugLogError("StagePendingEdit: pending edit buffer full (" + PENDING_EDIT_CAP.ToString() + "); dropping '" + exact + "'. Re-apply once ownership transfers.");
+            return;
+        }
+        pendingEditNames[pendingEditCount] = exact;
+        pendingEditIsAdd[pendingEditCount] = isAdd;
+        pendingEditKinds[pendingEditCount] = kind;
+        pendingEditCount++;
+        SchedulePendingEditApplication(1);
+    }
+
+    private void SchedulePendingEditApplication(int delayFrames)
+    {
+        if (_pendingApplyScheduled) return;
+        _pendingApplyScheduled = true;
+        SendCustomEventDelayedFrames(nameof(ProcessPendingEditApplication), Mathf.Max(1, delayFrames));
+    }
+
+    // Delayed-event entry point: apply staged edits as soon as ownership lands; otherwise retry.
+    public void ProcessPendingEditApplication()
+    {
+        _pendingApplyScheduled = false;
+        if (pendingEditCount <= 0) return;
+        if (!Networking.IsOwner(gameObject))
+        {
+            // Ownership transfer is asynchronous; VRChat assigns ownership shortly after SetOwner,
+            // and OnOwnershipTransferred flushes staged edits on arrival as well.
+            SchedulePendingEditApplication(60);
+            return;
+        }
+        ApplyPendingEdits();
+        TrySerializeManualChanges();
+    }
+
+    // Apply all staged edits (owner-only). Permissions are re-validated at apply time so a role
+    // list change between staging and application is honored.
+    private void ApplyPendingEdits()
+    {
+        if (pendingEditCount <= 0) return;
+        if (!Networking.IsOwner(gameObject)) return;
+        int applied = 0;
+        for (int i = 0; i < pendingEditCount; i++)
+        {
+            string name = pendingEditNames[i];
+            pendingEditNames[i] = null;
+            if (string.IsNullOrEmpty(name)) continue;
+            bool isAdd = pendingEditIsAdd[i];
+            int kind = pendingEditKinds[i];
+            bool ok = false;
+            if (kind == PENDING_EDIT_DJ)
+            {
+                if (CanLocalManageDjTarget(name))
+                {
+                    ok = isAdd ? ApplyDjAdd(name) : ApplyDjRemove(name);
+                }
+            }
+            else
+            {
+                if (isAdd && CanLocalAddTarget(name)) ok = ManualAdd(name);
+                else if (!isAdd && CanLocalRevokeTarget(name)) ok = ManualRemove(name);
+            }
+            if (ok) applied++;
+        }
+        pendingEditCount = 0;
+        if (applied > 0)
+        {
+            if (enableDebugLogs)
+            {
+                DebugLog("ApplyPendingEdits: applied " + applied.ToString() + " staged edit(s) after ownership transfer");
+            }
+            ClearAccessCache();
+            NotifyLists();
+            EvaluateLocalAccess();
+            EvaluateLocalDjAccess();
+        }
+    }
+
+    // Owner-only mutation cores shared by the public entry points and ApplyPendingEdits.
+    private bool ApplyDjAdd(string exact)
+    {
+        if (string.IsNullOrEmpty(exact)) return false;
 
         // Initialize if needed
         if (syncedDj == null || syncedDj.Length == 0)
@@ -1872,10 +1970,14 @@ public class VipWhitelistManager : UdonSharpBehaviour
         }
 
         // Case-insensitive dedup via syncedDjNorm.
-        if (ArrayContains(syncedDj, syncedDjCount, exact)) return;
+        if (ArrayContains(syncedDj, syncedDjCount, exact)) return false;
 
         int djLen = syncedDj.Length;
-        if (syncedDjCount >= djLen) return;
+        if (syncedDjCount >= djLen)
+        {
+            DebugLogWarning("ApplyDjAdd: DJ list full (" + djLen.ToString() + " entries). Cannot add '" + exact + "'.");
+            return false;
+        }
 
         syncedDj[syncedDjCount] = exact;
         if (syncedDjNorm != null && syncedDjCount < syncedDjNorm.Length)
@@ -1885,34 +1987,16 @@ public class VipWhitelistManager : UdonSharpBehaviour
         syncedDjCount++;
 
         djListDirty = true;
-
-        // OnOwnershipTransferred will flush djListDirty once ownership is confirmed.
-        if (Networking.IsOwner(gameObject))
-        {
-            TrySerializeManualChanges();
-        }
-
-        ClearAccessCache();
-        NotifyLists();
+        return true;
     }
 
-    public void DjRemove(string exact)
+    private bool ApplyDjRemove(string exact)
     {
-        if (string.IsNullOrEmpty(exact) || syncedDj == null) return;
-        if (!CanLocalManageDjTarget(exact)) return;
-
-        // Request ownership before mutating synced state, matching the pattern used by
-        // OnRowToggled/ManualRemove for the VIP list (this was previously reversed here).
-        VRCPlayerApi lpRemove = GetLocalPlayer();
-        if (Utilities.IsValid(lpRemove) && !Networking.IsOwner(gameObject))
-        {
-            Networking.SetOwner(lpRemove, gameObject);
-        }
+        if (string.IsNullOrEmpty(exact) || syncedDj == null) return false;
 
         // Case-insensitive lookup via syncedDjNorm.
         int idx = ArrayIndexOf(syncedDj, syncedDjCount, exact);
-
-        if (idx == -1) return;
+        if (idx == -1) return false;
 
         // Shift remaining entries down
         for (int i = idx + 1; i < syncedDjCount; i++)
@@ -1932,15 +2016,57 @@ public class VipWhitelistManager : UdonSharpBehaviour
         syncedDjCount--;
 
         djListDirty = true;
+        return true;
+    }
 
-        // OnOwnershipTransferred will flush djListDirty once ownership is confirmed.
-        if (Networking.IsOwner(gameObject))
+    // Manual DJ list management
+    public void DjAdd(string exact)
+    {
+        if (string.IsNullOrEmpty(exact)) return;
+        if (!CanLocalManageDjTarget(exact)) return;
+
+        VRCPlayerApi lpAdd = GetLocalPlayer();
+        if (Utilities.IsValid(lpAdd) && !Networking.IsOwner(gameObject))
         {
-            TrySerializeManualChanges();
+            // Request ownership and STAGE the edit instead of mutating synced state optimistically:
+            // it is applied in OnOwnershipTransferred / ProcessPendingEditApplication once this
+            // client actually owns the object, so a concurrent OnDeserialization() from the
+            // previous owner can't overwrite a speculative local write.
+            Networking.SetOwner(lpAdd, gameObject);
+            StagePendingEdit(exact, true, PENDING_EDIT_DJ);
+            return;
         }
 
-        ClearAccessCache();
-        NotifyLists();
+        if (ApplyDjAdd(exact))
+        {
+            // OnOwnershipTransferred will flush djListDirty once ownership is confirmed.
+            TrySerializeManualChanges();
+            ClearAccessCache();
+            NotifyLists();
+        }
+    }
+
+    public void DjRemove(string exact)
+    {
+        if (string.IsNullOrEmpty(exact)) return;
+        if (!CanLocalManageDjTarget(exact)) return;
+
+        VRCPlayerApi lpRemove = GetLocalPlayer();
+        if (Utilities.IsValid(lpRemove) && !Networking.IsOwner(gameObject))
+        {
+            // See DjAdd: stage instead of optimistic mutation.
+            Networking.SetOwner(lpRemove, gameObject);
+            StagePendingEdit(exact, false, PENDING_EDIT_DJ);
+            return;
+        }
+
+        if (ApplyDjRemove(exact))
+        {
+            // OnOwnershipTransferred will flush djListDirty once ownership is confirmed.
+            TrySerializeManualChanges();
+            ClearAccessCache();
+            NotifyLists();
+        }
     }
 
     // Evaluate DJ access for local player and toggle configured DJ area objects
@@ -2008,15 +2134,16 @@ public class VipWhitelistManager : UdonSharpBehaviour
         lastLocalDj = localDj;
     }
 
-    // Optimized manual remove with proper array shifting
-    private void ManualRemove(string exact)
+    // Optimized manual remove with proper array shifting. Returns false when there was nothing
+    // to remove (so ApplyPendingEdits can count actual applications).
+    private bool ManualRemove(string exact)
     {
-        if (string.IsNullOrEmpty(exact) || syncedManual == null) return;
+        if (string.IsNullOrEmpty(exact) || syncedManual == null) return false;
         
         // Case-insensitive lookup via syncedManualNorm.
         int idx = ArrayIndexOf(syncedManual, syncedManualCount, exact);
         
-        if (idx == -1) return;
+        if (idx == -1) return false;
         
         // Shift remaining entries down in both arrays
         for (int i = idx + 1; i < syncedManualCount; i++)
@@ -2047,6 +2174,7 @@ public class VipWhitelistManager : UdonSharpBehaviour
         
         // Local runtime cache invalidated because manual list changed
         ClearAccessCache();
+        return true;
     }
 
     // Determine if a name is authed (manual, role-based with vip permission, or superadmin)
@@ -2527,13 +2655,21 @@ public class VipWhitelistManager : UdonSharpBehaviour
             return;
         }
 
-        // Ensure local player is owner before attempting to serialize. Avoid unnecessary SetOwner if already owner.
+        // Ensure local player is owner before mutating. Non-owners request ownership and STAGE
+        // the edit (see StagePendingEdit) rather than writing [UdonSynced] arrays optimistically —
+        // the staged edit is applied when ownership transfer actually confirms, so a concurrent
+        // OnDeserialization() from the previous owner can't silently overwrite it.
         VRCPlayerApi lp = GetLocalPlayer();
         if (Utilities.IsValid(lp) && !Networking.IsOwner(gameObject))
         {
             Networking.SetOwner(lp, gameObject);
-            // Do not RequestSerialization here because ownership transfer is asynchronous.
-            // ManualAdd/Remove will mark manualDirty and OnOwnershipTransferred will flush serialization.
+            StagePendingEdit(exact, isOn, PENDING_EDIT_VIP);
+
+            // Always reflect true auth state (manual + role), not toggle intent.
+            NotifyListsForName(exact, IsAuthed(exact));
+            EvaluateLocalAccess();
+            EvaluateLocalDjAccess();
+            return;
         }
 
         if (isOn) ManualAdd(exact);
@@ -2545,10 +2681,15 @@ public class VipWhitelistManager : UdonSharpBehaviour
         EvaluateLocalDjAccess();
     }
 
-    // When we gain ownership, flush any pending manual/DJ changes by serializing once.
+    // When we gain ownership, apply any edits staged while waiting for ownership, then flush
+    // pending manual/DJ changes by serializing once (one RequestSerialization carries both).
     public override void OnOwnershipTransferred(VRCPlayerApi newOwner)
     {
-        if (Networking.IsOwner(gameObject) && (manualDirty || djListDirty || djSystemDirty || initialOwnerDirty))
+        if (!Networking.IsOwner(gameObject)) return;
+
+        ApplyPendingEdits();
+
+        if (manualDirty || djListDirty || djSystemDirty || initialOwnerDirty)
         {
             if (enableDebugLogs)
             {

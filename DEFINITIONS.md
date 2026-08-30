@@ -56,10 +56,10 @@ Manual list entries **persist until revoked**, even when the player leaves. Past
 
 ## `initialOwner`
 
-Recorded **once** on first `Start()` by the manager owner:
-
-1. `Networking.InstanceOwner` if valid
-2. Else first joiner (local player on first owner `Start()`)
+Recorded **once** from `Networking.InstanceOwner` only — the actual instance creator (retried on
+`OnPlayerJoined` if the creator wasn't in-world yet at `Start()`). There is **no first-joiner
+fallback**: if the creator can't be identified (Public/Group/Build & Test instances, or creator
+absent), `initialOwner` stays empty and nobody holds the role.
 
 Grants: **DJ management** + `*` marker in UI. Does **not** grant VIP add/revoke unless a role does.
 

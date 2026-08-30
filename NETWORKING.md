@@ -55,22 +55,21 @@ From [Object Ownership](https://creators.vrchat.com/worlds/udon/networking/owner
 ```
 User toggles VIP/DJ
   → SetOwner(localPlayer) if not owner
-  → Mutate synced fields locally
-  → manualDirty / djListDirty / djSystemDirty / initialOwnerDirty = true
-  → OnOwnershipTransferred (new owner)
+  → Owner:  mutate synced fields locally → dirty flag = true
+  → Not owner yet: edit is STAGED (no [UdonSynced] writes)
+      → OnOwnershipTransferred / ProcessPendingEditApplication (after ownership confirms)
+      → ApplyPendingEdits(): permissions re-checked, edits applied, dirty flags set
   → TrySerializeManualChanges()
   → RequestSerialization() (if not clogged, ≥10 frames since last)
   → Remote clients: OnDeserialization()
 ```
 
-**Known limitation:** the local mutate step happens right after requesting ownership, not after
-`OnOwnershipTransferred` confirms it (ownership transfer is asynchronous — see rule 3 above). If an
-`OnDeserialization()` from the outgoing owner's own in-flight edit arrives during that narrow window,
-it overwrites the local speculative edit before ownership is confirmed; the dirty flag is still set,
-so `OnOwnershipTransferred` re-serializes, but against the now-overwritten array — silently dropping
-the edit. This requires two staff editing within the same few-frame window to trigger, and is
-recoverable by re-toggling. Closing it fully would mean deferring the mutation itself to
-`OnOwnershipTransferred` instead of applying it optimistically.
+**Race note (closed):** edits from non-owners are no longer applied optimistically right after
+requesting ownership. They are staged in a pending buffer (`StagePendingEdit`) and applied by
+`OnOwnershipTransferred` / `ProcessPendingEditApplication` only once ownership transfer actually
+confirms this client as owner, with permissions re-validated at apply time. A concurrent
+`OnDeserialization()` from the outgoing owner during the wait can no longer silently overwrite a
+local edit; at worst the staged edit is applied on top of the owner's newer state.
 
 ---
 
@@ -116,7 +115,7 @@ From [Network Components](https://creators.vrchat.com/worlds/udon/networking/net
 | `Networking.IsOwner(player, obj)` | Whether player owns a specific networked GameObject |
 | `Networking.IsMaster` | Sync master — **do not use for security** |
 
-**Important:** `initialOwner` is recorded from `Networking.InstanceOwner` (first joiner when that is unavailable), **not** from object ownership. `IsInstanceOwner` is always `false` in **Public**, **Group**, and **Build & Test** instances — VIP Manager does not use it for access gating.
+**Important:** `initialOwner` is recorded only from `Networking.InstanceOwner` (the instance creator). When VRChat cannot identify a creator (**Public**, **Group**, and **Build & Test** instances, or the creator is not present), `initialOwner` stays **empty** — there is no first-joiner/object-owner fallback, so the role cannot be claimed by whoever happens to own the object early. `IsInstanceOwner` is always `false` in Public, Group, and Build & Test instances — VIP Manager does not use it for access gating.
 
 ---
 
@@ -178,6 +177,6 @@ Other UdonSharp scripts may call `OnRowToggled`, `DjAdd`, `DjRemove`, or `SetDjS
 
 ## Security Model
 
-Trust-based on VRChat display names and role membership. No `OnOwnershipRequest` gate. No `[NetworkCallable]` permission checks. Any player who can reach the UI and has edit permissions can take object ownership and mutate synced lists.
+Trust-based on VRChat display names and role membership. No `OnOwnershipRequest` gate. No `[NetworkCallable]` permission checks. The manager itself re-checks edit permissions in every mutation entry point (`OnRowToggled`, `DjAdd`, `DjRemove`, `SetDjSystemEnabledState`, and staged-edit application), non-owner edits wait for confirmed ownership, and `initialOwner` is reserved to the instance creator — UI `interactable` state is a convenience, not the enforcement layer.
 
 Not suitable as an anti-cheat or cryptographic access control system.

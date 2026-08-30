@@ -117,6 +117,7 @@ Charlie
 - Names are trimmed and matched case-insensitively against VRChat display names.
 - Up to **256 members** stored per role (`ROLE_MEMBER_CAP`).
 - Up to **1000 tokens** parsed per URL load; excess tokens are skipped.
+- If two or more roles share the same Pastebin URL, the list is fetched once and populates **all** matching roles.
 
 Every client fetches the role URLs independently at its own `Start()` — not just the manager owner (see [Networking & Persistence](#networking--persistence) below).
 
@@ -165,7 +166,7 @@ When **on**, only players on the DJ list, in a DJ-enabled role, or Super Admins 
 
 A player is **VIP authorized** if any of these match (case-insensitive display name):
 
-1. Super Admin (whitelist, `(Super Admin)` prefix, or role named "Super Admin")
+1. Super Admin (whitelist, or role named "Super Admin" — display-name text like a literal `(Super Admin)` prefix grants nothing)
 2. Manual synced VIP list (`OnRowToggled` / UI)
 3. Member of a role with **VIP Access** permission
 
@@ -185,7 +186,7 @@ A player has **DJ access** (for `IsDj` and area gating) if:
 - Role member rosters are **not** synced — each client loads them from Pastebin URLs locally.
 - **No VRChat persistence** — all lists reset when the instance ends.
 
-Ownership is taken on edits; changes serialize with a 10-frame throttle and clog retry.
+Ownership is taken on edits; non-owner edits are staged until ownership transfer confirms, then serialize with a 10-frame throttle and clog retry.
 
 ---
 
