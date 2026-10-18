@@ -4,6 +4,14 @@
 
 The historical report below is not acceptance evidence for the current repair stack.
 
+### VRChat World Development constraints
+
+- Scope: shared VIP/DJ UdonSharp logic used by the PC and Quest world variants. These PRs do not change scenes, prefabs, platform-switch rules, or upload settings.
+- Current project facts were checked directly: Unity `2022.3.22f1`, Worlds SDK `3.10.5`, and Easy Quest Switcher `1.4.0`. The development skill's older SDK snapshot is not the current package version.
+- The changes use the existing UdonSharp, Unity UI and TextMeshPro system. The UI components are on VRChat's [world component allowlist](https://creators.vrchat.com/worlds/whitelisted-world-components/); actual Udon API compatibility still requires Udon compilation.
+- Treat C# simulation, Unity edit-mode tests, ClientSim, and live VRChat tests as separate evidence. [ClientSim](https://creators.vrchat.com/worlds/clientsim/) does not establish multiplayer serialization or ownership behavior.
+- PC and Quest uploads are intentionally separate variants. Validate the VIP behavior in each applicable variant, including a mixed-platform instance when those variants share the same world instance. Shared source alone does not prove both variants are correctly wired.
+
 | Check | Current result |
 |---|---|
 | C# source compilation | Manager, UI, row and all three added regression fixtures compile together against the installed Unity 2022.3.22f1 / VRChat assemblies and NUnit 2.x |
