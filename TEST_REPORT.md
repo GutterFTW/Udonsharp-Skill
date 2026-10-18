@@ -1,5 +1,23 @@
 # VIP Manager System Test Report
 
+## Repair stack verification - October 18, 2026
+
+The historical report below is not acceptance evidence for the current repair stack.
+
+| Check | Current result |
+|---|---|
+| C# source compilation | Manager, UI, row and all three added regression fixtures compile together against the installed Unity 2022.3.22f1 / VRChat assemblies and NUnit 2.x |
+| Creator/ownership/DJ recovery regressions | 17 cases pass in an external simulated SDK harness using the current manager source; this does not execute Unity or VRChat transport |
+| Panel/interactivity regressions | 14 parameter-expanded cases compile; execution in Unity remains pending |
+| Whitespace validation | `git diff --check` passes |
+| Independent PR review | Requested for each PR; no review result received at the time of this update |
+| Unity/Udon compilation | Pending coordinated editor validation |
+| Actual scene wiring and multiplayer | Pending; ownership churn, late joins, rejoin, protected targets and barrier behavior require live acceptance |
+
+**Current status: review and runtime acceptance pending.** The reported creator-access failure is not confirmed resolved in a live instance. Source compilation and simulated tests do not establish runtime readiness.
+
+---
+
 > **Historical snapshot (January 15, 2026).** Edit-mode smoke tests only. For current behavior, API, and verification steps see [CONTRACT.md](CONTRACT.md), [DEFINITIONS.md](DEFINITIONS.md), and [README.md](README.md#testing--verification). Manual VRChat testing is the primary validation method.
 
 **Test Date:** January 15, 2026  
