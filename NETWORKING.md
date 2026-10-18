@@ -33,10 +33,20 @@ public class VipWhitelistManager : UdonSharpBehaviour
 
 | Data | Why local-only is OK |
 |------|---------------------|
-| `roleMembersFlat` (Pastebin rosters) | Same URL on every client; loaded at Start |
+| `roleMembersFlat` (Pastebin rosters) | Product uses independent per-client Start downloads; same URL does not guarantee identical content or successful fetches |
 | Barrier GameObject active state | Derived locally from access checks |
 | UI row pool / layout | Derived from player list + manager state |
 | Auth/DJ caches | Performance optimization; rebuilt from source data |
+
+---
+
+## Remote role loading and failure behavior
+
+Each client loads every distinct configured nonempty URL at Start. One successful download populates all roles with that exact URL. Roster parsing accepts newlines/commas, trims names, deduplicates case-insensitively, and stores at most 256 members per role after inspecting at most 1000 tokens. Truncation and download failures emit errors even when debug logging is off.
+
+There is no automatic role-download retry or public mid-instance reload API. A failed initial load leaves that client's corresponding role empty; manual grants, configured Super Admins and identifiable creator DJ-management remain separate sources. Rejoining creates a new local Start download, not an instance-wide cached snapshot. Remote edits or failures can therefore produce different role membership across clients. `roleListVersion` signals refresh work and does not synchronize the rosters themselves. Do not promise the microphone module's v1.2 shared-roster parity for VIP roles.
+
+This is an established VIP design plus observed failure behavior; a shared roster or retry strategy would be a separate proposed change requiring product/ownership review.
 
 ---
 
@@ -53,7 +63,7 @@ From [Object Ownership](https://creators.vrchat.com/worlds/udon/networking/owner
 ### VIP Manager ownership flow
 
 ```
-User toggles VIP/DJ
+User toggles VIP/DJ or the global DJ system
   → SetOwner(localPlayer) if not owner
   → Owner:  mutate synced fields locally → dirty flag = true
   → Not owner yet: edit is STAGED (no [UdonSynced] writes)
@@ -64,12 +74,14 @@ User toggles VIP/DJ
   → Remote clients: OnDeserialization()
 ```
 
-**Race note (closed):** edits from non-owners are no longer applied optimistically right after
+**Ownership-race mitigation (multiplayer acceptance pending):** edits from non-owners are no longer applied optimistically right after
 requesting ownership. They are staged in a pending buffer (`StagePendingEdit`) and applied by
 `OnOwnershipTransferred` / `ProcessPendingEditApplication` only once ownership transfer actually
 confirms this client as owner, with permissions re-validated at apply time. A concurrent
 `OnDeserialization()` from the outgoing owner during the wait can no longer silently overwrite a
-local edit; at worst the staged edit is applied on top of the owner's newer state.
+local edit before application. Source checks support the staged-write mitigation; real concurrent ownership/transport behavior still requires the acceptance checklist. The global DJ
+system switch also stages its latest requested state until ownership confirms, re-checks permissions
+at apply time, and restores the authoritative toggle visual while waiting or when denied.
 
 ---
 
@@ -79,6 +91,7 @@ VIP Manager enforces:
 
 - **Minimum 10 frames** between `RequestSerialization()` calls
 - **Clog retry** — if `Networking.IsClogged`, retry after 10 frames via `ProcessPendingManualSerialization`
+- **Failed-send retry** — `OnPostSerialization` checks `success`; a failed send schedules another full snapshot even after the request cleared dirty flags
 
 Contract guarantee: **best-effort propagation**, not instant or sub-second SLA.
 
@@ -96,7 +109,7 @@ VIP Manager `OnDeserialization()` then:
 
 1. Compacts and deduplicates synced manual VIP/DJ lists
 2. Clears access caches
-3. Calls `NotifyLists()` (full rebuild if `roleListVersion`, `syncedManualCount`, or `syncedDjCount` changed)
+3. Retains/repairs the creator record and calls `NotifyLists()` (rebuild selection tracks `roleListVersion`, resolved creator name and copied VIP/DJ membership snapshots, including changes that preserve list counts)
 4. Re-evaluates `objectsToDisableWhenAuthed` and `djAreaObjects` for local player
 5. Broadcasts DJ system toggle state to UI
 
@@ -115,7 +128,11 @@ From [Network Components](https://creators.vrchat.com/worlds/udon/networking/net
 | `Networking.IsOwner(player, obj)` | Whether player owns a specific networked GameObject |
 | `Networking.IsMaster` | Sync master — **do not use for security** |
 
-**Important:** `initialOwner` is recorded only from `Networking.InstanceOwner` (the instance creator). When VRChat cannot identify a creator (**Public**, **Group**, and **Build & Test** instances, or the creator is not present), `initialOwner` stays **empty** — there is no first-joiner/object-owner fallback, so the role cannot be claimed by whoever happens to own the object early. `IsInstanceOwner` is always `false` in Public, Group, and Build & Test instances — VIP Manager does not use it for access gating.
+Creator DJ management checks VRChat's identity directly (`Networking.IsInstanceOwner` for the local player, or the player returned by `Networking.InstanceOwner`). It also accepts the retained creator name, so permission does not depend on receiving a particular synced snapshot. Both the UI and mutation gate use this same creator check.
+
+Each client retains a normalized creator name locally. The current object owner repairs a stale/empty `initialOwner` record from that identity on join, deserialization, and ownership transfer. A deferred refresh after these callbacks updates permissions and the pinned creator row after per-frame UI caches expire. When the creator leaves, clients retain their name; when they return, live identity takes precedence again.
+
+When VRChat cannot identify a creator (**Public**, **Group**, and **Build & Test** instances), and no creator record exists, `initialOwner` stays **empty**. There is no first-joiner/object-owner/master fallback. These instances need configured Super Admin or role permissions for DJ management.
 
 ---
 
@@ -154,7 +171,7 @@ VIP Manager pattern:
 
 | Event | Manager | UI |
 |-------|---------|-----|
-| `OnPlayerJoined` (remote) | Forwards to each UI's `OnPlayerJoined`; no manager-side work otherwise | Add/update one row |
+| `OnPlayerJoined` (remote) | Forwards to each UI's `OnPlayerJoined`; observes/repairs creator identity and coalesces a deferred permission refresh | Add/update one row; rebuild only if creator identity changed |
 | `OnPlayerJoined` (local) | `EvaluateLocalAccess(true)` + `EvaluateLocalDjAccess(true)` | Same incremental row path |
 | `OnPlayerLeft` (any) | Prune player name cache; no access/barrier eval | Mark offline or remove row |
 | `OnDeserialization` | Full cache clear + `NotifyLists()` + access eval | Deferred rebuild via manager |

@@ -11,7 +11,7 @@ VRChat world asset for **VIP area access** and **DJ booth access**, built with [
 - **Role-based whitelists** — Each role can load members from a `VRCUrl` (Pastebin or compatible text host), with per-role colors and permissions.
 - **Manual lists** — Instance-synced manual VIP and DJ entries, editable from the in-world UI.
 - **In-world admin UI** — Scrollable player list with per-player VIP and DJ toggles.
-- **Super Admins** — Hardcoded display names; all areas; own UI row immutable; can edit others including Read-Only roles.
+- **Super Admins** — Hardcoded display names; all areas; all Super Admin VIP toggles immutable in UI; can edit others including Read-Only roles.
 
 ---
 
@@ -41,7 +41,7 @@ Open the manager in the Inspector. The custom editor lets you add roles with:
 | Add / Revoke | Can edit other players' VIP toggles |
 | VIP Access | Members of this role get VIP area access |
 | DJ Access | Members of this role get DJ booth access |
-| Read Only | Staff cannot edit members; Super Admins may override |
+| Read Only | Protected targets require Super Admin for VIP/DJ edits; creator status alone does not bypass this |
 
 Set **Super Admin Whitelist** to exact VRChat display names for permanent admins. Super Admins are hardcoded and allowed into all areas by default; their VIP toggles are immutable in the UI.
 
@@ -57,7 +57,7 @@ A typical venue configuration:
 | **Staff** | ✓ | ✓ | ✓ | — | — |
 
 - **Patreon Subscribers / VIPs** can add and remove VIP access for other players during an instance.
-- **Super Admins** — own row is immutable in UI; they can edit other players including Read-Only roles.
+- **Super Admins** — all Super Admin VIP toggles are immutable in UI; they can edit other players including Read-Only roles.
 - The **instance starter** can manage DJ toggles but cannot edit VIP unless they belong to a role with Add/Revoke permissions.
 
 Load Patreon/VIP member names from a Pastebin URL on the role's `rolePastebinUrls` entry.
@@ -119,7 +119,7 @@ Charlie
 - Up to **1000 tokens** parsed per URL load; excess tokens are skipped.
 - If two or more roles share the same Pastebin URL, the list is fetched once and populates **all** matching roles.
 
-Every client fetches the role URLs independently at its own `Start()` — not just the manager owner (see [Networking & Persistence](#networking--persistence) below).
+Every client fetches the role URLs independently at its own `Start()` - not just the manager owner (see [Networking & Persistence](#networking--persistence) below). Failures log errors; there is no automatic retry. Role rosters may differ after a failed request or a remote edit between clients' downloads. Rejoining triggers a fresh local download. This differs from Global Microphone's shared permanent roster.
 
 ---
 
@@ -212,14 +212,34 @@ Ownership is taken on edits; non-owner edits are staged until ownership transfer
 2. **Single client first** — confirm role Pastebin loads, barriers toggle, and a UI row appears for every in-world player (not just permitted ones, so staff can grant access).
 3. **Two clients** — verify VIP/DJ toggle changes sync (`OnDeserialization`), DJ system toggle syncs, and barriers update on both clients.
 4. **Late joiner** — third client receives current manual lists and correct barrier state.
-5. **Instance starter** — confirm `*` pinned row and DJ management rights persist when the creator leaves and rejoins.
-6. **Super Admin** — confirm own row is locked but Read-Only role members can be edited.
+5. **DJ management recovery across instance types** — have another authorized staff member change the DJ list (transferring manager ownership), then confirm the original authorized operator can still grant/revoke DJ access and change the global DJ switch. Have the current object owner leave, check again, then have the original operator leave and rejoin. Confirm controls, synced DJ lists/system state, and guest booth barriers on both clients. Repeat for Invite/Friends and Public/Group instances. In Invite/Friends, also test the creator with no configured role and confirm the `*` pinned row. Public/Group/Build & Test do not expose creator identity, so use a configured operator for those tests.
+6. **Super Admin** — confirm Super Admin VIP toggles are locked for all actors while Super Admins can edit other Read-Only role members.
+
+### Acceptance gaps and decision provenance
+
+The original creator losing DJ management is a human-reported defect. The current creator-recovery, staged edits and retry changes need actual VRChat acceptance; the live defect is not yet confirmed resolved. The existing contract provides the other access rules. No first-joiner or replacement-master fallback has been chosen.
+
+Add these cases to the multi-client flow above:
+
+| Journey | Expected result / evidence needed |
+| --- | --- |
+| Creator edits a Read-Only target | VIP/DJ controls are disabled for that target unless the creator is also Super Admin; mutation entry points reject the same edit |
+| Add-only / revoke-only operator | Only the permitted direction changes manual VIP state; UI restores authoritative access on denial |
+| Revoke a role-granted player | Removing a manual grant does not remove remotely granted access |
+| Remote roster download fails on one client | Error is visible; manual/Super Admin/creator sources still behave correctly; no role parity is claimed |
+| Remove one offline manual entry and add another before the next snapshot | Same-count membership replacement updates row presence on the receiver; a source correction and regression cases are provided; coordinated execution and live acceptance remain required |
+| Long list and ownership churn | Scroll smoothly, preserve event-driven toggles, and verify original operator rights after ownership changes/leave/rejoin |
+
+The April [scroll audit](.planning/debug/scroll-stutter-vip-list.md) still awaits real interaction verification. The [scene audit](.planning/debug/unity-scene-audit.md) records historical SDK-generated descriptor mismatches awaiting editor regeneration; this is not a current permission-system test result. See [CONTRACT.md](CONTRACT.md#decision-provenance-and-unresolved-policy) for unresolved overlapping-role, Super Admin DJ-target, and licensing choices. Do not change those rules merely to match current code.
 
 ### Optional automated assets
 
 | Asset | Purpose |
 |-------|---------|
 | `Editor/VipManagerEditorTests.cs` | Edit-mode smoke tests (inspector config only) |
+| `Editor/VipDjInteractivityTests.cs` | Creator/Read-Only DJ controls, Super Admin override and ordinary creator targets; current added cases require coordinated execution |
+| `Editor/VipListReconciliationTests.cs` | Same-count VIP/DJ replacements, offline revocation and retained presence reasons; current added cases require coordinated execution |
+| `Editor/VipInitialOwnerTests.cs` | Creator permissions, stale snapshot/ownership recovery, staged DJ grants/system changes with and without creator identity, and failed-send retry using controlled SDK hooks; no live transport |
 | `VipManagerTests.cs` | Optional runtime harness in a test scene |
 | `Example Scene.unity` | Reference wiring |
 | `TEST_REPORT.md` | Historical edit-mode report (Jan 2026) |
@@ -239,6 +259,8 @@ Ownership is taken on edits; non-owner edits are staged until ownership transfer
 ---
 
 ## License
+
+The intended commercial terms below conflict with the placeholder MIT grant in LICENSE.txt. Owner confirmation is required before distribution; this documentation audit does not choose or replace licensing terms.
 
 Commercial asset for distribution via Gumroad, Booth, or similar platforms.
 

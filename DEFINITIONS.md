@@ -1,6 +1,6 @@
 # VIP Manager — Component & Data Definitions
 
-**Status:** Locked (v1.0 contract, July 2026)  
+**Status:** v1.1 behavior; documentation reconciled October 18, 2026. Open policy questions are recorded in CONTRACT.md.
 See also: [CONTRACT.md](CONTRACT.md), [NETWORKING.md](NETWORKING.md)
 
 ---
@@ -10,8 +10,8 @@ See also: [CONTRACT.md](CONTRACT.md), [NETWORKING.md](NETWORKING.md)
 | Script | Sync Mode | Role |
 |--------|-----------|------|
 | `VipWhitelistManager` | **Manual** | Authority for access checks, synced lists, local barrier gating |
-| `VipWhitelistUI` | **None** | In-world scroll list; forwards toggle events to manager |
-| `VipWhitelistRow` | **None** | Per-player row; prefab event entry points |
+| `VipWhitelistUI` | **NoVariableSync** | In-world scroll list; forwards toggle events to manager |
+| `VipWhitelistRow` | **NoVariableSync** | Per-player row; prefab event entry points |
 
 **Design split:**
 - **Must match all clients** → `[UdonSynced]` fields on the manager
@@ -30,13 +30,13 @@ Local barrier objects. **Active = blocked**, **inactive = access granted**. DJ b
 ### Role arrays
 Parallel per-role config: name, Pastebin URL, color, Add, Revoke, VIP Access, DJ Access, Read-Only.
 
-**Read-Only:** Protects members from Patreon/staff edits. **Super Admins can override** and edit Read-Only players (own Super Admin row stays non-interactable).
+**Read-Only:** A protected target cannot be edited by Patreon/staff or the instance creator. **Super Admins can override**. Target protection currently uses the first matching role; whether overlapping roles should use any Read-Only membership remains unresolved in CONTRACT.md. The Super Admin VIP row remains non-interactable in the UI.
 
 ### `maxSyncedManual` (default **256**, no hard code cap)
 Capacity for `syncedManual` and `syncedDj` arrays. VRChat manual-sync payload size (~280 KB per serialization) is the practical upper bound.
 
 ### `superAdminWhitelist`
-Hardcoded Super Admins — all areas, immutable own row in UI.
+Hardcoded Super Admins — all areas; every Super Admin VIP toggle is immutable in UI (DJ policy is separate).
 
 ---
 
@@ -47,7 +47,7 @@ Hardcoded Super Admins — all areas, immutable own row in UI.
 | `syncedManual` + `syncedManualCount` | Runtime manual **VIP** grants from UI toggles |
 | `syncedDj` + `syncedDjCount` | Runtime manual **DJ** grants from DJ subsystem toggles |
 | `syncedDjSystemEnabled` | Global DJ subsystem on/off (off = list persists, toggles hidden, gating off) |
-| `initialOwner` | Permanent normalized name of instance starter; never overwritten |
+| `initialOwner` | Normalized instance creator name; stale/empty synced records are repaired from retained identity |
 | `roleListVersion` | UI rebuild counter when role Pastebin data changes |
 
 Manual list entries **persist until revoked**, even when the player leaves. Pastebin role assignments return on rejoin.
@@ -56,10 +56,12 @@ Manual list entries **persist until revoked**, even when the player leaves. Past
 
 ## `initialOwner`
 
-Recorded **once** from `Networking.InstanceOwner` only — the actual instance creator (retried on
-`OnPlayerJoined` if the creator wasn't in-world yet at `Start()`). There is **no first-joiner
-fallback**: if the creator can't be identified (Public/Group/Build & Test instances, or creator
-absent), `initialOwner` stays empty and nobody holds the role.
+Resolved from `Networking.InstanceOwner` or the local `Networking.IsInstanceOwner` flag, then
+retained locally and synced. The current object owner repairs stale/empty snapshots on join,
+deserialization, and ownership transfer. Creator permission checks also accept live identity
+before the synced name arrives. There is **no first-joiner fallback**: if no creator can be
+identified or retained (including Public/Group/Build & Test), nobody holds this role. Configured
+Super Admin/VIP roles can manage DJs independently of creator identity and instance type.
 
 Grants: **DJ management** + `*` marker in UI. Does **not** grant VIP add/revoke unless a role does.
 
@@ -69,14 +71,14 @@ Grants: **DJ management** + `*` marker in UI. Does **not** grant VIP add/revoke 
 
 ## UI Row Visibility
 
-Show a row when the player has **any** of:
+Every currently in-world player gets a row, including players with no permissions. An offline player retains a row when they have **any** of:
 - Super Admin
 - `initialOwner`
 - Any Pastebin role
 - Manual VIP (`syncedManual`)
 - Manual DJ (`syncedDj`)
 
-**Prune** permission-less passer-bys on leave. In-world role members always get rows.
+**Prune** permission-less passer-bys on leave. Existing role/Super Admin rows can be retained after those players leave; the UI does not enumerate the full remote role roster. Manual VIP/DJ entries and the retained creator are also added when absent. Rebuild reconciliation must remove an already-offline row after its final presence reason is revoked, before allocating replacements at the row cap. New regression coverage requires coordinated execution.
 
 ---
 
@@ -93,7 +95,7 @@ Show a row when the player has **any** of:
 1. Editor takes object ownership (`SetOwner`) before synced writes
 2. `RequestSerialization()` on owner (10-frame throttle, clog retry)
 3. Late joiners receive synced state via `OnDeserialization()`
-4. Role Pastebin: local load at Start only; eventual consistency OK
+4. Role Pastebin: each client loads at Start; membership is not synced. Failed downloads log errors without automatic retry. Different fetch outcomes/times can produce different role access until clients reload successfully.
 
 ---
 
@@ -101,4 +103,4 @@ Show a row when the player has **any** of:
 
 Manual in-instance testing in VRChat is the **expected** way to validate behavior. See [README.md](README.md#testing--verification) for the recommended checklist. Editor NUnit tests are optional smoke checks only.
 
-Code is aligned with this contract as of v1.0 (July 2026).
+This is the intended contract and a source map, not a runtime sign-off. Historical test results and current source checks do not establish live multiplayer compliance. See README.md for acceptance work and CONTRACT.md for open authority questions.

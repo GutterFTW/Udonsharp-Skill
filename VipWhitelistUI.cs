@@ -651,6 +651,31 @@ public class VipWhitelistUI : UdonSharpBehaviour
         int count = Mathf.Min(totalPlayers, playerBuf.Length);
         VRCPlayerApi.GetPlayers(playerBuf);
 
+        // Reconcile departed rows before allocating new ones, including a revoke received
+        // after the player already left. Free stale rows before enforcing the row cap.
+        if (manager != null)
+        {
+            for (int rowIndex = rowCount - 1; rowIndex >= 0; rowIndex--)
+            {
+                string key = NormalizeRawName(rowKeys[rowIndex]);
+                if (string.IsNullOrEmpty(key) || manager.PlayerHasUiPresence(key)) continue;
+                string lowerKey = key.ToLowerInvariant();
+                bool present = false;
+                for (int playerIndex = 0; playerIndex < count; playerIndex++)
+                {
+                    VRCPlayerApi player = playerBuf[playerIndex];
+                    if (!Utilities.IsValid(player)) continue;
+                    string currentName = NormalizeRawName(GetCachedPlayerDisplayName(player));
+                    if (!string.IsNullOrEmpty(currentName) && currentName.ToLowerInvariant() == lowerKey)
+                    {
+                        present = true;
+                        break;
+                    }
+                }
+                if (!present) RemoveRow(key);
+            }
+        }
+
         // keep local seen set (lowercased) to avoid adding duplicates when players belong to multiple roles
         if (_addedKeysLower == null || _addedKeysLower.Length < rows.Length) _addedKeysLower = new string[Mathf.Max(rows.Length, 256)];
         int addedKeysCount = 0;
@@ -1376,14 +1401,6 @@ public class VipWhitelistUI : UdonSharpBehaviour
             return;
         }
 
-        // If local player is a Super Admin or the initial owner, always allow DJ interactivity
-        // regardless of target's read-only role (except for Super Admin targets handled above)
-        if (GetLocalHasDjOverride())
-        {
-            dj.interactable = true;
-            return;
-        }
-
         // Prefer cached role index from the row script when available to avoid extra string parsing.
         int roleIdx = -1;
         if (_cachedManager != null)
@@ -1399,6 +1416,14 @@ public class VipWhitelistUI : UdonSharpBehaviour
             }
             // Read-Only roles block staff edits; Super Admins may override.
             if (roleIdx >= 0 && _cachedManager.GetRoleIsReadOnly(roleIdx) && !GetLocalIsSuperAdmin()) { dj.interactable = false; return; }
+        }
+
+        // Creator DJ authority does not bypass target Read-Only protection above.
+        // Super Admins retain their existing override; ordinary creator targets remain editable.
+        if (GetLocalHasDjOverride())
+        {
+            dj.interactable = true;
+            return;
         }
 
         dj.interactable = canManageDj;

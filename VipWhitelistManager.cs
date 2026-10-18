@@ -2394,6 +2394,29 @@ public class VipWhitelistManager : UdonSharpBehaviour
     private int _lastNotifiedDjCount = -1;
     private string _lastNotifiedInitialOwner;
     private bool _rebuildScheduled = false;
+    // Local snapshots detect membership replacement even when serialized counts are unchanged.
+    private string[] _lastNotifiedManualNames = new string[0];
+    private string[] _lastNotifiedDjNames = new string[0];
+
+    private bool MatchesNotifiedList(string[] current, int count, string[] snapshot)
+    {
+        if (snapshot == null || snapshot.Length != count) return false;
+        if (count > 0 && (current == null || current.Length < count)) return false;
+        for (int i = 0; i < count; i++)
+        {
+            if (current[i] != snapshot[i]) return false;
+        }
+        return true;
+    }
+
+    private string[] CopyNotifiedList(string[] current, int count)
+    {
+        int length = current != null ? Mathf.Min(Mathf.Max(count, 0), current.Length) : 0;
+        string[] snapshot = new string[length];
+        for (int i = 0; i < length; i++) snapshot[i] = current[i];
+        return snapshot;
+    }
+
     // Notify all lists[] UIs to rebuild or refresh toggles.
     public void NotifyLists()
     {
@@ -2401,6 +2424,8 @@ public class VipWhitelistManager : UdonSharpBehaviour
         if (roleListVersion != _lastNotifiedRoleListVersion) needRebuild = true;
         if (syncedManualCount != _lastNotifiedManualCount) needRebuild = true;
         if (syncedDjCount != _lastNotifiedDjCount) needRebuild = true;
+        if (!MatchesNotifiedList(syncedManual, syncedManualCount, _lastNotifiedManualNames)) needRebuild = true;
+        if (!MatchesNotifiedList(syncedDj, syncedDjCount, _lastNotifiedDjNames)) needRebuild = true;
         if (GetInitialOwnerName() != _lastNotifiedInitialOwner) needRebuild = true;
 
         if (needRebuild)
@@ -2432,6 +2457,8 @@ public class VipWhitelistManager : UdonSharpBehaviour
         _lastNotifiedRoleListVersion = roleListVersion;
         _lastNotifiedManualCount = syncedManualCount;
         _lastNotifiedDjCount = syncedDjCount;
+        _lastNotifiedManualNames = CopyNotifiedList(syncedManual, syncedManualCount);
+        _lastNotifiedDjNames = CopyNotifiedList(syncedDj, syncedDjCount);
         _lastNotifiedInitialOwner = GetInitialOwnerName();
         RefreshListTogglesOnly();
     }
