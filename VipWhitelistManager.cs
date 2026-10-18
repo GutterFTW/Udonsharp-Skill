@@ -70,8 +70,12 @@ public class VipWhitelistManager : UdonSharpBehaviour
     [UdonSynced] private string[] syncedDj = new string[256];
     [UdonSynced] private int syncedDjCount;
     [UdonSynced] private bool syncedDjSystemEnabled = true;
-    // Permanent instance starter (normalized, case-insensitive). Grants DJ management; never overwritten.
+    // Permanent instance creator (normalized, case-insensitive). Repaired after stale handoffs.
     [UdonSynced] private string initialOwner;
+    // Retain the creator across stale/empty snapshots during ownership handoffs.
+    // Only VRChat's instance-owner identity or the synced creator record may populate this.
+    private string _knownInitialOwner;
+    private bool _initialOwnerRefreshScheduled;
     // version counter incremented when parsed role lists change so clients can decide whether to rebuild
     [UdonSynced] private int roleListVersion;
 
@@ -83,6 +87,7 @@ public class VipWhitelistManager : UdonSharpBehaviour
     private const int MIN_SERIALIZATION_FRAME_INTERVAL = 10;
     private int _lastSerializationFrame = -MIN_SERIALIZATION_FRAME_INTERVAL;
     private bool _serializationRetryScheduled = false;
+    private bool _serializationFailed = false;
 
     // Staged pending edits for non-owner staff: changes wait until ownership transfer actually
     // confirms this client as owner before touching [UdonSynced] state, so a concurrent
@@ -96,6 +101,8 @@ public class VipWhitelistManager : UdonSharpBehaviour
     private int[] pendingEditKinds = new int[PENDING_EDIT_CAP];
     private int pendingEditCount = 0;
     private bool _pendingApplyScheduled = false;
+    private bool _pendingDjSystemChange;
+    private bool _pendingDjSystemEnabled;
 
     private bool lastLocalAuthed;
     private bool lastLocalDj = false;
@@ -357,26 +364,46 @@ public class VipWhitelistManager : UdonSharpBehaviour
     public bool IsInstanceInitialOwner(VRCPlayerApi player)
     {
         if (!Utilities.IsValid(player)) return false;
-        if (string.IsNullOrEmpty(initialOwner)) return false;
+        // Creator privileges must not depend on delivery of a synced display name.
+        if (player.isLocal && Networking.IsInstanceOwner) return true;
+        VRCPlayerApi instanceOwner = Networking.InstanceOwner;
+        if (Utilities.IsValid(instanceOwner) && instanceOwner.playerId == player.playerId) return true;
+        string ownerName = GetInitialOwnerName();
+        if (string.IsNullOrEmpty(ownerName)) return false;
         string local = NormalizeForCompare(NormalizeNameFromPlayer(player));
         if (string.IsNullOrEmpty(local)) return false;
-        return initialOwner == local;
+        return ownerName == local;
     }
 
     // Overload: check if a name is the initial owner
     public bool IsInstanceInitialOwner(string name)
     {
         if (string.IsNullOrEmpty(name)) return false;
-        if (string.IsNullOrEmpty(initialOwner)) return false;
+        string ownerName = GetInitialOwnerName();
+        if (string.IsNullOrEmpty(ownerName)) return false;
         string normalized = NormalizeForCompare(StripRolePrefix(name));
         if (string.IsNullOrEmpty(normalized)) return false;
-        return initialOwner == normalized;
+        return ownerName == normalized;
     }
 
-    // Permanent synced name of the instance starter (normalized display name).
+    // Prefer VRChat's creator identity; keep a local copy when the creator leaves or sync lags.
     public string GetInitialOwnerName()
     {
-        return initialOwner;
+        VRCPlayerApi instanceOwner = Networking.InstanceOwner;
+        if (!Utilities.IsValid(instanceOwner) && Networking.IsInstanceOwner)
+        {
+            instanceOwner = GetLocalPlayer();
+        }
+        if (Utilities.IsValid(instanceOwner))
+        {
+            string ownerName = NormalizeForCompare(NormalizeNameFromPlayer(instanceOwner));
+            if (!string.IsNullOrEmpty(ownerName)) _knownInitialOwner = ownerName;
+        }
+        if (string.IsNullOrEmpty(_knownInitialOwner) && !string.IsNullOrEmpty(initialOwner))
+        {
+            _knownInitialOwner = initialOwner;
+        }
+        return _knownInitialOwner;
     }
 
     // Whether a player should appear in the VIP UI (role, manual lists, super admin, or instance starter).
@@ -394,33 +421,35 @@ public class VipWhitelistManager : UdonSharpBehaviour
         return false;
     }
 
-    private void TryRecordInitialOwnerOnce()
+    private void TryRecordInitialOwner()
     {
-        if (!string.IsNullOrEmpty(initialOwner)) return;
+        string ownerName = GetInitialOwnerName();
+        if (string.IsNullOrEmpty(ownerName) || initialOwner == ownerName) return;
         if (!Networking.IsOwner(gameObject)) return;
 
-        // Only the actual instance creator may be recorded as initialOwner. VRChat exposes the
-        // creator via Networking.InstanceOwner when it can identify one and null otherwise
-        // (Public/Group/Build & Test, or creator not in the instance). The old fallback —
-        // self-recording from object ownership when InstanceOwner was null — let whoever owned
-        // the object during that window (a slow join, clogged network, or a deliberate early
-        // ownership grab by any player) claim permanent DJ-manage privileges. Fail closed
-        // instead: if the creator can't be identified, initialOwner stays empty and nobody gets
-        // the instance-starter role (Super Admin / role permissions still work).
-        VRCPlayerApi instanceOwner = Networking.InstanceOwner;
-        if (!Utilities.IsValid(instanceOwner)) return;
-
-        string ownerName = NormalizeNameFromPlayer(instanceOwner);
-
-        if (string.IsNullOrEmpty(ownerName)) return;
-
-        initialOwner = NormalizeForCompare(ownerName);
+        // Repair stale/empty records without promoting the current object owner or master.
+        initialOwner = ownerName;
         initialOwnerDirty = true;
         if (enableDebugLogs)
         {
-            DebugLog("TryRecordInitialOwnerOnce: recorded initial owner '" + initialOwner + "'");
+            DebugLog("TryRecordInitialOwner: recorded initial owner '" + initialOwner + "'");
         }
         TrySerializeManualChanges();
+    }
+
+    private void ScheduleInitialOwnerRefresh()
+    {
+        if (_initialOwnerRefreshScheduled) return;
+        _initialOwnerRefreshScheduled = true;
+        // Join/transfer callbacks may precede identity availability and UI permission caches.
+        SendCustomEventDelayedFrames(nameof(ProcessInitialOwnerRefresh), 1);
+    }
+
+    public void ProcessInitialOwnerRefresh()
+    {
+        _initialOwnerRefreshScheduled = false;
+        TryRecordInitialOwner();
+        NotifyLists();
     }
 
     // Ensure role member buffers sized to inspector role count. This method is still safe to call multiple times
@@ -792,7 +821,8 @@ public class VipWhitelistManager : UdonSharpBehaviour
         EvaluateLocalAccess();
         EvaluateLocalDjAccess();
 
-        TryRecordInitialOwnerOnce();
+        TryRecordInitialOwner();
+        ScheduleInitialOwnerRefresh();
         
         if (enableDebugLogs)
         {
@@ -846,12 +876,9 @@ public class VipWhitelistManager : UdonSharpBehaviour
             EvaluateLocalDjAccess(true);
         }
 
-        // If the instance creator wasn't resolvable at Start() (e.g. they join after us), record
-        // initialOwner as soon as they appear — owner-gated inside TryRecordInitialOwnerOnce.
-        if (string.IsNullOrEmpty(initialOwner) && Networking.IsOwner(gameObject))
-        {
-            TryRecordInitialOwnerOnce();
-        }
+        // Observe the creator on every client, even when another staff member owns the manager.
+        TryRecordInitialOwner();
+        ScheduleInitialOwnerRefresh();
     }
 
     public override void OnPlayerLeft(VRCPlayerApi player)
@@ -908,6 +935,8 @@ public class VipWhitelistManager : UdonSharpBehaviour
         CompactSyncedDj();
         // Synced lists changed -> invalidate runtime access cache (IsAuthed/IsDj results cached in memory)
         ClearAccessCache();
+        TryRecordInitialOwner();
+        ScheduleInitialOwnerRefresh();
         // Notify UIs to update rows (either lightweight updates or full rebuild depending on role/manual version)
         NotifyLists();
         // Force re-evaluation of local access/UI objects since synced lists may change interactivity or local object states
@@ -1900,7 +1929,7 @@ public class VipWhitelistManager : UdonSharpBehaviour
     public void ProcessPendingEditApplication()
     {
         _pendingApplyScheduled = false;
-        if (pendingEditCount <= 0) return;
+        if (pendingEditCount <= 0 && !_pendingDjSystemChange) return;
         if (!Networking.IsOwner(gameObject))
         {
             // Ownership transfer is asynchronous; VRChat assigns ownership shortly after SetOwner,
@@ -1916,7 +1945,7 @@ public class VipWhitelistManager : UdonSharpBehaviour
     // list change between staging and application is honored.
     private void ApplyPendingEdits()
     {
-        if (pendingEditCount <= 0) return;
+        if (pendingEditCount <= 0 && !_pendingDjSystemChange) return;
         if (!Networking.IsOwner(gameObject)) return;
         int applied = 0;
         for (int i = 0; i < pendingEditCount; i++)
@@ -1942,6 +1971,13 @@ public class VipWhitelistManager : UdonSharpBehaviour
             if (ok) applied++;
         }
         pendingEditCount = 0;
+        if (_pendingDjSystemChange)
+        {
+            _pendingDjSystemChange = false;
+            if (CanLocalManageDj() && ApplyDjSystemEnabledState(_pendingDjSystemEnabled)) applied++;
+            // Restore the authoritative visual state even if permissions changed while waiting.
+            BroadcastDjSystemState();
+        }
         if (applied > 0)
         {
             if (enableDebugLogs)
@@ -2262,10 +2298,9 @@ public class VipWhitelistManager : UdonSharpBehaviour
         VRCPlayerApi lp = GetLocalPlayer();
         if (!Utilities.IsValid(lp)) return false;
         if (IsSuperAdmin(lp)) return true;
-        string local = NormalizeNameFromPlayer(lp);
         // Allow the initial owner who started the instance to manage DJs
-        string localNorm = NormalizeForCompare(local);
-        if (!string.IsNullOrEmpty(initialOwner) && !string.IsNullOrEmpty(localNorm) && initialOwner == localNorm) return true;
+        if (IsInstanceInitialOwner(lp)) return true;
+        string local = NormalizeNameFromPlayer(lp);
         if (string.IsNullOrEmpty(local)) return false;
         EnsureRoleBuffersOnce();
         int rcount = _cachedRoleCount;
@@ -2312,37 +2347,53 @@ public class VipWhitelistManager : UdonSharpBehaviour
 
     public void SetDjSystemEnabledState(bool enabled)
     {
-        if (!CanLocalManageDj()) return;
-        if (syncedDjSystemEnabled == enabled) return;
+        if (!CanLocalManageDj())
+        {
+            BroadcastDjSystemState();
+            return;
+        }
+        if (syncedDjSystemEnabled == enabled && !_pendingDjSystemChange)
+        {
+            BroadcastDjSystemState();
+            return;
+        }
 
-        // Request ownership before mutating synced state, matching the pattern used by
-        // OnRowToggled/ManualAdd for the VIP list (this was previously reversed here).
         if (!Networking.IsOwner(gameObject))
         {
+            // Keep the latest intent outside synced state until ownership confirms. Even a
+            // request matching the current state must replace an earlier pending opposite edit.
+            _pendingDjSystemChange = true;
+            _pendingDjSystemEnabled = enabled;
+            SchedulePendingEditApplication(1);
+            BroadcastDjSystemState();
             VRCPlayerApi lp = GetLocalPlayer();
             if (Utilities.IsValid(lp))
             {
                 Networking.SetOwner(lp, gameObject);
             }
+            return;
         }
 
+        _pendingDjSystemChange = false;
+        if (ApplyDjSystemEnabledState(enabled)) TrySerializeManualChanges();
+        BroadcastDjSystemState();
+    }
+
+    private bool ApplyDjSystemEnabledState(bool enabled)
+    {
+        if (syncedDjSystemEnabled == enabled) return false;
         syncedDjSystemEnabled = enabled;
         djSystemDirty = true;
-        BroadcastDjSystemState();
-        // Re-evaluate DJ area objects immediately so they reflect the new system state.
         EvaluateLocalDjAccess(true);
-        if (Networking.IsOwner(gameObject))
-        {
-            TrySerializeManualChanges();
-        }
+        return true;
     }
 
     // track last notified versions to avoid expensive full rebuilds when not needed
     private int _lastNotifiedRoleListVersion = -1;
     private int _lastNotifiedManualCount = -1;
     private int _lastNotifiedDjCount = -1;
+    private string _lastNotifiedInitialOwner;
     private bool _rebuildScheduled = false;
-
     // Notify all lists[] UIs to rebuild or refresh toggles.
     public void NotifyLists()
     {
@@ -2350,6 +2401,7 @@ public class VipWhitelistManager : UdonSharpBehaviour
         if (roleListVersion != _lastNotifiedRoleListVersion) needRebuild = true;
         if (syncedManualCount != _lastNotifiedManualCount) needRebuild = true;
         if (syncedDjCount != _lastNotifiedDjCount) needRebuild = true;
+        if (GetInitialOwnerName() != _lastNotifiedInitialOwner) needRebuild = true;
 
         if (needRebuild)
         {
@@ -2380,6 +2432,7 @@ public class VipWhitelistManager : UdonSharpBehaviour
         _lastNotifiedRoleListVersion = roleListVersion;
         _lastNotifiedManualCount = syncedManualCount;
         _lastNotifiedDjCount = syncedDjCount;
+        _lastNotifiedInitialOwner = GetInitialOwnerName();
         RefreshListTogglesOnly();
     }
 
@@ -2543,7 +2596,7 @@ public class VipWhitelistManager : UdonSharpBehaviour
 
     private void TrySerializeManualChanges()
     {
-        if (!Networking.IsOwner(gameObject) || (!manualDirty && !djListDirty && !djSystemDirty && !initialOwnerDirty)) return;
+        if (!Networking.IsOwner(gameObject) || (!manualDirty && !djListDirty && !djSystemDirty && !initialOwnerDirty && !_serializationFailed)) return;
         if (Networking.IsClogged)
         {
             if (enableDebugLogs) Debug.Log("(VIP Manager) RequestSerialization deferred due to network clog");
@@ -2565,6 +2618,16 @@ public class VipWhitelistManager : UdonSharpBehaviour
         djListDirty = false;
         djSystemDirty = false;
         initialOwnerDirty = false;
+        _serializationFailed = false;
+    }
+
+    public override void OnPostSerialization(VRC.Udon.Common.SerializationResult result)
+    {
+        if (result.success || !Networking.IsOwner(gameObject)) return;
+        // RequestSerialization is only a request. A failed send must retry the full snapshot,
+        // including the creator record, even though the request already cleared dirty flags.
+        _serializationFailed = true;
+        ScheduleManualSerializationRetry();
     }
 
     // Shared gate for CanLocalAddTarget/CanLocalRevokeTarget: both require the same Read-Only/Super
@@ -2685,11 +2748,13 @@ public class VipWhitelistManager : UdonSharpBehaviour
     // pending manual/DJ changes by serializing once (one RequestSerialization carries both).
     public override void OnOwnershipTransferred(VRCPlayerApi newOwner)
     {
+        TryRecordInitialOwner();
+        ScheduleInitialOwnerRefresh();
         if (!Networking.IsOwner(gameObject)) return;
 
         ApplyPendingEdits();
 
-        if (manualDirty || djListDirty || djSystemDirty || initialOwnerDirty)
+        if (manualDirty || djListDirty || djSystemDirty || initialOwnerDirty || _serializationFailed)
         {
             if (enableDebugLogs)
             {

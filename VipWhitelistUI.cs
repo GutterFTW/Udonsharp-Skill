@@ -1406,12 +1406,13 @@ public class VipWhitelistUI : UdonSharpBehaviour
 
     public void SetDjSystemEnabled(bool enabled)
     {
-        if (_djSystemEnabled == enabled) return;
+        bool changed = _djSystemEnabled != enabled;
         _djSystemEnabled = enabled;
         if (Utilities.IsValid(djSystemToggle))
         {
             djSystemToggle.SetIsOnWithoutNotify(enabled);
         }
+        if (!changed) return;
         UpdateDjToggleVisibility(_templateDjToggle, enabled);
         bool canManageDj = GetCachedManagerCanManageDj();
         for (int i = 0; i < rowCount; i++)
