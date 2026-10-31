@@ -6,6 +6,12 @@ This document defines the **public integration surface** of `VipWhitelistManager
 **Stability:** Display-name-based trust model; not a security boundary.  
 **Networking detail:** See [NETWORKING.md](NETWORKING.md).
 
+**Conformance status (2026-10-31):** This is the intended integration contract,
+not a certificate that the current implementation meets every guarantee. See
+[MAINTENANCE.md](MAINTENANCE.md#known-implementation-and-delivery-gaps) for observed
+source gaps (UD-01..11) and reproducible acceptance cases. The documentation audit
+does not change access rules, defaults or runtime code.
+
 ---
 
 ## Components
@@ -13,8 +19,8 @@ This document defines the **public integration surface** of `VipWhitelistManager
 | Type | Sync mode | Role |
 |------|-----------|------|
 | `VipWhitelistManager` | Manual | Core authority for access, sync, and local gating |
-| `VipWhitelistUI` | None | In-world player list; calls into manager |
-| `VipWhitelistRow` | None | Per-row toggle events; wired from prefab |
+| `VipWhitelistUI` | NoVariableSync | In-world player list; calls into manager |
+| `VipWhitelistRow` | NoVariableSync | Per-row toggle events; wired from prefab |
 
 ---
 
@@ -69,7 +75,11 @@ VipWhitelistManager.PLAYER_BUF_SIZE   // 128
 
 ## Query API (stable)
 
-All name parameters accept display names with optional role prefixes (e.g. `(VIP) Alice`). Names are normalized: trimmed, lowercased for comparison, role prefix stripped.
+Query methods generally normalize display names by trimming, case-insensitive
+comparison and recognized prefix handling. Integrations should supply raw
+`VRCPlayerApi.displayName` values. Do not use a UI label or an arbitrary
+`(Super Admin)` prefix as authenticated identity. Mutation entry points do not
+uniformly strip prefixes; pass raw names there, too. See UD-09 in MAINTENANCE.
 
 ### Access checks
 
@@ -149,7 +159,11 @@ bool HasDjAccess(string name)
 
 ## Mutation API
 
-Callable from UI or other scripts. All mutations take ownership and trigger manual serialization.
+Callable from UI or other scripts. Accepted shared-list/system edits request
+ownership and attempt manual serialization; rejected/no-op/full-capacity requests
+need not change anything. Evaluate/Notify/Ensure methods below are local helpers,
+not synchronized mutations. Ownership requests are not delivery acknowledgments;
+see NETWORKING and UD-02/03 in MAINTENANCE.
 
 | Method | Effect |
 |--------|--------|
@@ -272,7 +286,7 @@ Evaluated on: `Start()`, local player `OnPlayerJoined`, `OnDeserialization`, DJ 
 | `syncedManual` / `syncedManualCount` | `string[]`, `int` | Manual VIP list |
 | `syncedDj` / `syncedDjCount` | `string[]`, `int` | Manual DJ list |
 | `syncedDjSystemEnabled` | `bool` | Global DJ toggle (default `true`) |
-| `initialOwner` | `string` | Permanent normalized name of instance starter (never overwritten) |
+| `initialOwner` | `string` | Intended permanent normalized starter name; fallback/init limitations are tracked as UD-07 |
 | `roleListVersion` | `int` | Bumped when role URL data changes |
 
 Role member arrays are **local only** (loaded from URLs, not networked).
@@ -356,3 +370,12 @@ Contract compliance is validated through **manual in-instance testing** in VRCha
 - Defined barrier gating semantics, manual sync scope, and networking reference.
 - Added Super Admin access pattern, edit-permission matrix, and commercial license terms.
 - Aligned implementation: `initialOwner`, Read-Only override, `lists[]` inspector-only, DJ dirty flag, UI pruning.
+
+### 2026-10-31 documentation reconciliation
+
+- Retained v1.0 intended behavior and identified source conformance gaps rather
+  than treating historical alignment claims as current proof.
+- Clarified raw-name integration inputs, local helper versus shared mutation
+  semantics, clean-import limitations and the acceptance evidence boundary.
+- Earlier commercial-license commentary does not resolve the conflicting tracked
+  license template; UD-10 requires an owner decision before distribution.

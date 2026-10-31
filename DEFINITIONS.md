@@ -3,6 +3,10 @@
 **Status:** Locked (v1.0 contract, July 2026)  
 See also: [CONTRACT.md](CONTRACT.md), [NETWORKING.md](NETWORKING.md)
 
+The v1.0 rules remain intended behavior. Current source conformance and runtime
+acceptance are tracked separately in [MAINTENANCE.md](MAINTENANCE.md); the lock
+does not establish a tested clean import or verified multiplayer behavior.
+
 ---
 
 ## System Overview
@@ -10,8 +14,8 @@ See also: [CONTRACT.md](CONTRACT.md), [NETWORKING.md](NETWORKING.md)
 | Script | Sync Mode | Role |
 |--------|-----------|------|
 | `VipWhitelistManager` | **Manual** | Authority for access checks, synced lists, local barrier gating |
-| `VipWhitelistUI` | **None** | In-world scroll list; forwards toggle events to manager |
-| `VipWhitelistRow` | **None** | Per-player row; prefab event entry points |
+| `VipWhitelistUI` | **NoVariableSync** | In-world scroll list; forwards toggle events to manager |
+| `VipWhitelistRow` | **NoVariableSync** | Per-player row; prefab event entry points |
 
 **Design split:**
 - **Must match all clients** → `[UdonSynced]` fields on the manager
@@ -59,7 +63,13 @@ Manual list entries **persist until revoked**, even when the player leaves. Past
 Recorded **once** on first `Start()` by the manager owner:
 
 1. `Networking.InstanceOwner` if valid
-2. Else first joiner (local player on first owner `Start()`)
+2. Else the local manager owner at initialization
+
+The intended contract identity is the instance starter. The source fallback
+does not establish that the current manager owner is the first joiner, and the
+ownership callback does not retry initialization. See UD-07 in
+[MAINTENANCE.md](MAINTENANCE.md#known-implementation-and-delivery-gaps) before
+claiming creator recovery or using the fallback as proven starter identity.
 
 Grants: **DJ management** + `*` marker in UI. Does **not** grant VIP add/revoke unless a role does.
 
@@ -69,7 +79,8 @@ Grants: **DJ management** + `*` marker in UI. Does **not** grant VIP add/revoke 
 
 ## UI Row Visibility
 
-Show a row when the player has **any** of:
+Show a row for every currently present player so authorized staff can grant
+access. For offline/absent players, retain a row when they have **any** of:
 - Super Admin
 - `initialOwner`
 - Any Pastebin role
@@ -101,4 +112,5 @@ Show a row when the player has **any** of:
 
 Manual in-instance testing in VRChat is the **expected** way to validate behavior. See [README.md](README.md#testing--verification) for the recommended checklist. Editor NUnit tests are optional smoke checks only.
 
-Code is aligned with this contract as of v1.0 (July 2026).
+The historical July 2026 alignment claim is not a current verification result.
+See the source gap table and NOT RUN acceptance cases in MAINTENANCE.
