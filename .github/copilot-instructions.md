@@ -1,5 +1,21 @@
 # VIP Manager - Copilot Instructions
 
+## Current project authority (2026-10-31)
+
+Read `AGENTS.md`, `README.md`, `CONTRACT.md`, `DEFINITIONS.md`, `NETWORKING.md`
+and `MAINTENANCE.md` before project changes. The contract records intended
+behavior; MAINTENANCE records observed source gaps and actual validation limits.
+Generic examples below and `docs/USharp-*.md` are reference material and must be
+checked against the importing project's installed SDK. `USharp-README.md` maps
+their actual paths and reuse; no `CLAUDE.md` or installable skill manifest is
+tracked. Documentation work does not authorize runtime fixes or Unity execution.
+
+The manager uses Manual sync; UI/row use NoVariableSync. Only accepted shared
+mutations request ownership/publication. UI state is local. Preserve these
+distinctions, fixed arrays, raw platform identity inputs and the gap table;
+do not silently promote a historical readiness claim into current acceptance.
+
+
 This repository contains a VIP whitelist management system for VRChat worlds built with Unity, UdonSharp, and VRChat SDK3.
 
 ## Project Overview
@@ -41,7 +57,8 @@ VIP Manager is a role-based VIP and manual whitelist system for VRChat worlds th
    - Jagged arrays cause Udon VM issues - flatten them (see `roleMembersFlat` pattern)
    - Always initialize arrays with explicit sizes
 
-5. **No Async/Await**: All operations must be synchronous or use Unity coroutines/events
+5. **No Async/Await**: Use supported Udon callbacks and delayed custom events;
+   ordinary Unity coroutine patterns are not automatically Udon-compatible.
    - Use `SendCustomEventDelayedFrames()` for deferred execution
    - Network operations use callback methods (e.g., `OnStringLoadSuccess`)
 
@@ -62,14 +79,14 @@ VIP Manager is a role-based VIP and manual whitelist system for VRChat worlds th
 2. **Public Fields/Properties**: camelCase (e.g., `roleNames`, `maxSyncedManual`)
 3. **Private Fields**: camelCase with underscore prefix (e.g., `_cachedRoleCount`, `_lastSerializationFrame`)
 4. **Constants**: UPPER_SNAKE_CASE (e.g., `ROLE_MEMBER_CAP`, `ACCESS_CACHE_SIZE`)
-5. **Public Methods**: PascalCase (e.g., `RegisterList`, `GetRoleIndex`)
+5. **Public Methods**: PascalCase (e.g., `NotifyLists`, `GetRoleIndex`)
 6. **Private Methods**: PascalCase (e.g., `EnsureRoleBuffers`, `CompactSyncedManual`)
-7. **Udon Event Receivers**: Prefix with underscore for UI callbacks (e.g., `_OnRowToggled`)
+7. **Udon Event Receivers**: Preserve the actual serialized event names (`AuthToggled`, `DJToggled`, `DJSystemEnabled`, `_RefreshNow`). An underscore is not a universal event naming rule.
 
 ### Code Style
 
 1. **Attributes**:
-   - Use `[UdonBehaviourSyncMode(BehaviourSyncMode.Manual)]` on all UdonSharp classes
+   - Use Manual sync for `VipWhitelistManager`; `VipWhitelistUI` and `VipWhitelistRow` use NoVariableSync. Choose other modes only for an assigned behavior change.
    - Use `[Header("Section Name")]` to organize inspector fields
    - Use `[Tooltip("Description")]` for user-facing inspector fields
    - Use `[HideInInspector]` for runtime-only public fields
@@ -111,8 +128,7 @@ VIP Manager is a role-based VIP and manual whitelist system for VRChat worlds th
 ### VRCPlayerApi
 
 - Use `Networking.LocalPlayer` to get the local player
-- Use `VRCPlayerApi.GetPlayers(VRCPlayerApi[] players)` to populate an array with all players (returns int count)
-  - Example: `VRCPlayerApi[] players = new VRCPlayerApi[100]; int count = VRCPlayerApi.GetPlayers(players);`
+- Populate a sized player buffer with `VRCPlayerApi.GetPlayers(players)`; query `VRCPlayerApi.GetPlayerCount()` separately. Do not assume `GetPlayers` returns an integer count. The shipped UI buffer is fixed at 128 entries.
 - Track players using `OnPlayerJoined()` and `OnPlayerLeft()` events for dynamic player lists
 - Always validate with `Utilities.IsValid(player)` before accessing player properties
 - Common properties: `displayName`, `playerId`, `isLocal`, `isMaster`
@@ -121,13 +137,7 @@ VIP Manager is a role-based VIP and manual whitelist system for VRChat worlds th
 
 ### Event Execution Order
 
-Common Udon event execution order:
-1. `Start()` - Called once when the script is initialized
-2. `OnPlayerJoined()` - Called when any player joins
-3. `OnPlayerLeft()` - Called when any player leaves
-4. `OnOwnershipTransferred()` - Called when ownership changes
-5. `OnDeserialization()` - Called when synced data is received
-6. `Update()` - Called every frame (use sparingly)
+These are lifecycle callbacks, not a guaranteed total order: `Start`, player join/leave, ownership transfer, deserialization and `Update`. Do not rely on DefaultExecutionOrder to sequence UdonSharp Start across behaviours; the panel has a bounded RetryStart path. Consult installed SDK behavior and the official event-order reference.
 
 ### String and Data Loading
 
@@ -135,7 +145,7 @@ Common Udon event execution order:
 - Implement `OnStringLoadSuccess()` and `OnStringLoadError()` callbacks
 - Use `VRCImageDownloader.LoadImage()` for loading remote images
 - URLs must meet VRChat's remote URL requirements (see [External URLs docs](https://creators.vrchat.com/worlds/udon/external-urls))
-- Approved domains include: GitHub (raw.githubusercontent.com), Pastebin (pastebin.com/raw), and others
+- Consult the current official String Loading trusted-domain list; do not assume every GitHub/raw image endpoint is trusted for string downloads. The project uses text rosters, not authenticated URLs.
 - World creators can request additional URL whitelisting through VRChat's support system
 - Data containers: Use `DataDictionary` and `DataList` for complex data (UdonSharp 1.x+)
 
@@ -260,13 +270,14 @@ Common Udon event execution order:
 
 ## Build and Deploy
 
-This package is distributed as a Unity package (.unitypackage):
-1. Import into Unity project with VRChat SDK3 and UdonSharp
-2. Drag prefabs into scene
-3. Configure roles and permissions in inspector
-4. Upload world to VRChat
+No verified `.unitypackage` is tracked. Follow MAINTENANCE.md's isolated-import
+workflow: establish the actual compatible Worlds environment, inspect/repair
+missing script/program/GUID references without fabricating identities, wire a
+test scene, compile C# and Udon, then execute and record the relevant acceptance
+cases. Export and world publication require separate scope and validation;
+documentation changes do not authorize either.
 
-No build system or automated tests are present - testing happens in VRChat client.
+No standalone build/test system is tracked. `Editor/VipManagerEditorTests.cs` and `VipManagerTests.cs` are optional configuration/helper harnesses; they do not establish Udon compile, clean import or multi-client correctness. Follow the acceptance ledger in MAINTENANCE.md.
 
 ## Official Documentation References
 

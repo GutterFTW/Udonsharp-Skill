@@ -2,6 +2,15 @@
 
 > **Historical snapshot (January 15, 2026).** Edit-mode smoke tests only. For current behavior, API, and verification steps see [CONTRACT.md](CONTRACT.md), [DEFINITIONS.md](DEFINITIONS.md), and [README.md](README.md#testing--verification). Manual VRChat testing is the primary validation method.
 
+> **Audit boundary, 2026-10-31:** The original report below is retained as a
+> historical claim. Raw logs, the named test scene and a pinned project are not
+> supplied here; its inferred Unity version and production-readiness statements
+> were not independently reproduced. Ten configuration/reflection checks cannot
+> establish Udon compilation, prefab import identities, networking or VR runtime
+> behavior. No Unity tests were run for this documentation update. Use
+> [MAINTENANCE.md](MAINTENANCE.md#acceptance-and-evidence-ledger) for current
+> acceptance requirements; all runtime cases remain NOT RUN.
+
 **Test Date:** January 15, 2026  
 **Project:** Cliffside Venue  
 **Test Framework:** Unity Test Framework (Edit Mode)
