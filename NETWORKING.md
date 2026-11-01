@@ -2,6 +2,10 @@
 
 Reference for how VIP Manager uses VRChat's networking model. Sourced from [VRChat Creator Docs](https://creators.vrchat.com/worlds/udon/networking/).
 
+Current source limitations and acceptance fixtures are indexed in
+[MAINTENANCE.md](MAINTENANCE.md). Read this flow as observed implementation,
+separate from the intended contract and from runtime acceptance.
+
 ---
 
 ## Sync Mode
@@ -33,7 +37,7 @@ public class VipWhitelistManager : UdonSharpBehaviour
 
 | Data | Why local-only is OK |
 |------|---------------------|
-| `roleMembersFlat` (Pastebin rosters) | Same URL on every client; loaded at Start |
+| `roleMembersFlat` (Pastebin rosters) | Loaded independently at Start; equal URLs do not guarantee equal response contents or successful downloads |
 | Barrier GameObject active state | Derived locally from access checks |
 | UI row pool / layout | Derived from player list + manager state |
 | Auth/DJ caches | Performance optimization; rebuilt from source data |
@@ -83,7 +87,11 @@ VIP Manager enforces:
 
 Contract guarantee: **best-effort propagation**, not instant or sub-second SLA.
 
-VRChat manual sync rate-limits based on payload size. VIP Manager's payload is small (string arrays up to 256 entries + counts + bools + `roleListVersion`).
+VRChat manual sync rate-limits based on payload size. The arrays default to 256
+entries each, but `maxSyncedManual` is configurable and names have variable
+length. Do not infer a fixed payload size, delivery time or supported population
+from that default. Dirty flags clear at `RequestSerialization`; no
+`OnPostSerialization` success acknowledgment is implemented (UD-03).
 
 ---
 
@@ -101,7 +109,11 @@ VIP Manager `OnDeserialization()` then:
 4. Re-evaluates `objectsToDisableWhenAuthed` and `djAreaObjects` for local player
 5. Broadcasts DJ system toggle state to UI
 
-Late joiners still load role Pastebin data locally at their own `Start()`. `roleListVersion` is synced with manual/DJ lists so clients know when a full UI rebuild is required after role URL updates.
+Late joiners still load role Pastebin data locally at their own `Start()`.
+`roleListVersion` can request a UI rebuild; it does not transmit rosters, trigger
+a new download on other clients or prove their permissions agree. No refresh
+timer or application retry is implemented. Test URL failures and edits during a
+live instance as separate fixtures (UD-08).
 
 ---
 
@@ -116,7 +128,16 @@ From [Network Components](https://creators.vrchat.com/worlds/udon/networking/net
 | `Networking.IsOwner(player, obj)` | Whether player owns a specific networked GameObject |
 | `Networking.IsMaster` | Sync master — **do not use for security** |
 
-**Important:** `initialOwner` is recorded from `Networking.InstanceOwner` (first joiner when that is unavailable), **not** from object ownership. `IsInstanceOwner` is always `false` in **Public**, **Group**, and **Build & Test** instances — VIP Manager does not use it for access gating.
+**Intended identity:** `initialOwner` represents the contract's permanent
+instance starter, separate from changing network ownership. **Observed source:**
+`TryRecordInitialOwnerOnce` runs only on the local manager owner, uses a valid
+`Networking.InstanceOwner` if available, otherwise records that current local
+manager owner. The fallback does not prove that player was the first joiner.
+There is no initialization retry in `OnOwnershipTransferred`; see UD-07 in
+[MAINTENANCE.md](MAINTENANCE.md#known-implementation-and-delivery-gaps).
+VIP Manager's permission checks use the recorded name, not `IsMaster` or
+`IsInstanceOwner` as an independent grant. Verify creator availability for the
+actual instance type in the installed SDK and acceptance fixture.
 
 ---
 
