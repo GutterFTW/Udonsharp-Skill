@@ -75,11 +75,13 @@ VipWhitelistManager.PLAYER_BUF_SIZE   // 128
 
 ## Query API (stable)
 
-Query methods generally normalize display names by trimming, case-insensitive
-comparison and recognized prefix handling. Integrations should supply raw
+The intended v1.0 guarantee is that all name parameters accept display names
+with optional recognized role prefixes, with trim and case-insensitive matching.
+The current mutation entry points do **not** uniformly strip prefixes: this is
+a source-conformance gap, not a reduction of the intended guarantee. Until an
+assigned fix is validated, integrations should supply raw
 `VRCPlayerApi.displayName` values. Do not use a UI label or an arbitrary
-`(Super Admin)` prefix as authenticated identity. Mutation entry points do not
-uniformly strip prefixes; pass raw names there, too. See UD-09 in MAINTENANCE.
+`(Super Admin)` prefix as authenticated identity. See UD-09 in MAINTENANCE.
 
 ### Access checks
 
