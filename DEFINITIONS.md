@@ -79,6 +79,14 @@ Grants: **DJ management** + `*` marker in UI. Does **not** grant VIP add/revoke 
 
 ## UI Row Visibility
 
+This summary follows the **pre-existing** v1.0
+[CONTRACT guarantee 6](CONTRACT.md#guarantees) and its `PlayerHasUiPresence`
+definition, both already present at source baseline `a764cfd`. They distinguish
+present players from offline retention. This reconciliation does not approve a
+new visibility policy or change the locked contract; the earlier summary here
+omitted that distinction. `VipWhitelistUI.OnPlayerJoined` and
+`RebuildPlayerList` are the corresponding implementation entry points.
+
 Show a row for every currently present player so authorized staff can grant
 access. For offline/absent players, retain a row when they have **any** of:
 - Super Admin
