@@ -1,183 +1,98 @@
-# UdonSharp Skill — AI Context Package
+# UdonSharp reference library
 
-A portable **AI skill** for VS Code that gives GitHub Copilot, Claude, and compatible AI
-assistants deep, accurate knowledge about **UdonSharp** VRChat world and script development.
+This is the reference-document and snippet surface of the repository. The root
+also contains the legacy VIP Manager asset, documented in [README.md](README.md)
+and [MAINTENANCE.md](MAINTENANCE.md). Reusing learning material does not require
+copying those runtime scripts or prefabs into another world.
 
-Import this skill into any VRChat / UdonSharp project to get AI assistance that understands
-the UdonVM constraints, VRChat APIs, networking rules, and best practices right out of the box.
+## Actual contents and authority
 
----
+- `.github/copilot-instructions.md`: repository instructions with general
+  UdonSharp notes. Its location is relative to this repository's root.
+- `docs/USharp-*.md`: 25 reference documents, including networking-events and
+  networking-specs supplements. These are reference snapshots, not a versioned
+  SDK specification or approved requirements for every importing project.
+- `snippets/USharp-udonsharp.code-snippets`: an export wrapper containing 41 C#
+  entries under `snippets[]`, plus `version`, `scopedPackageInstallation` and
+  `language` metadata. It is **not** VS Code's native named-snippet object despite
+  its extension. No `snippets/udonsharp.code-snippets` is supplied.
+- `AGENTS.md`: current agent entry point and exact managed Graphify instructions.
 
-## What This Package Contains
+There is **no tracked `CLAUDE.md`, `SKILL.md`, plugin manifest, agent installer,
+package manifest or automatic registration script**. Do not claim this checkout
+is installed as a named skill, or that files copied beneath Unity Assets are
+automatically discovered by any coding assistant.
 
-```
-.github/
-  copilot-instructions.md   ← GitHub Copilot custom workspace instructions
-CLAUDE.md                   ← Claude project memory (auto-read by Claude)
-docs/
-  01-udonsharp-overview.md  ← Language features, differences from C#
-  02-vrchat-api.md          ← Full VRChat API reference
-  03-players.md             ← Player API (positions, forces, audio, getting players)
-  04-networking.md          ← Ownership, sync modes, event rules, patterns
-  05-data-containers.md     ← DataList, DataDictionary, VRCJson
-  06-persistence.md         ← Player Data and Player Objects
-  07-input-events.md        ← Button and axis input events
-  08-ui-events.md           ← Allowed Unity UI event targets
-  09-editor-scripting.md    ← Custom inspectors, proxy system
-  10-debugging.md           ← Debug workflow and log reading
-  11-external-urls.md       ← String loading and image loading
-  12-vrc-graphics.md        ← VRCGraphics, AsyncGPUReadback, VRCCameraSettings, VRCQualitySettings, Shader Globals
-  13-world-debug-views.md   ← In-client debug views and overlays
-  14-build-test.md          ← Build & Test, Build & Reload, multiple clients
-  15-vm-assembly.md         ← Udon VM overview and Udon Assembly reference
-  16-layers.md              ← Unity layers in VRChat (layer table, stickers, physics)
-  17-allowlisted-components.md ← Complete list of allowed world components by category
-  18-scene-components.md     ← VRC_SceneDescriptor, VRC_ObjectSync, VRC_Pickup, VRC_Station, VRC_MirrorReflection, VRC_SpatialAudioSource, VRC_AvatarPedestal, VRC_UIShape, VRC_PortalMarker
-  19-world-setup.md          ← Creating worlds, SDK prefabs, supported assets, ClientSim, publishing
-  20-video-players.md        ← VRCAVProVideoPlayer and VRCUnityVideoPlayer reference
-  21-midi.md                 ← Realtime MIDI and MIDI playback (VRCMidiListener, VRCMidiPlayer)
-  22-event-execution-order.md ← Unity + VRChat event execution order
-  23-items.md                ← Items in Udon worlds (Item layer, disabling, physics safety)
-snippets/
-  udonsharp.code-snippets   ← VS Code C# code snippets
-README.md                   ← This file
-```
+The importing project's own contracts and agent instructions remain authoritative.
+Check API and language availability against its installed Worlds SDK/UdonSharp
+and current [VRChat Creator documentation](https://creators.vrchat.com/worlds/udon/).
+Do not copy an illustrative networking, moderation, persistence or permission
+example as a product decision.
 
----
+## Find the right reference
 
-## How to Use
+All paths below are relative to this root, with the `USharp-` prefix retained.
 
-### Option A — Copy into your project (Recommended)
-
-1. Copy this entire folder into your Unity project under `Assets/` (e.g. `Assets/UdonSharp-Skill/`).
-2. VS Code will automatically pick up `.github/copilot-instructions.md` for GitHub Copilot.
-3. Claude reads `CLAUDE.md` automatically when you open the project folder.
-4. The `snippets/udonsharp.code-snippets` file is picked up as workspace snippets by VS Code.
-
-### Option B — Reference as a VS Code workspace
-
-1. Open VS Code with this folder as the workspace root.
-2. Add your actual Unity project as a second workspace folder (multi-root workspace).
-3. GitHub Copilot will merge the instructions from both workspaces.
-
-### Option C — Manual snippet import
-
-1. Press `Ctrl+Shift+P` → **Preferences: Configure User Snippets** → `csharp.json`.
-2. Copy the contents of `snippets/udonsharp.code-snippets` into that file.
-
----
-
-## Available Snippets
-
-Type any prefix in a `.cs` C# file and press `Tab` to expand:
-
-| Prefix | What it inserts |
+| Topic | Tracked reference |
 |---|---|
-| `udon-behaviour` | Basic `UdonSharpBehaviour` template |
-| `udon-behaviour-manual` | Template with `BehaviourSyncMode.Manual` |
-| `udon-behaviour-continuous` | Template with `BehaviourSyncMode.Continuous` |
-| `udon-field-callback` | `[UdonSynced]` + `[FieldChangeCallback]` property pair |
-| `udon-interact` | `Interact()` override |
-| `udon-player-joined` | `OnPlayerJoined()` override |
-| `udon-player-left` | `OnPlayerLeft()` with `IsValid` guard |
-| `udon-ownership-transfer` | `OnOwnershipTransferred()` with ownership check |
-| `udon-deserialization` | `OnDeserialization()` override |
-| `udon-pickup-events` | All 4 pickup event overrides |
-| `udon-station-events` | Station enter/exit overrides |
-| `udon-network-event` | `SendCustomNetworkEvent(...)` call |
-| `udon-delayed-event` | `SendCustomEventDelayedSeconds(...)` |
-| `udon-delayed-frames` | `SendCustomEventDelayedFrames(...)` |
-| `udon-set-owner` | Take ownership of current GameObject |
-| `udon-is-owner` | Ownership check with if-block |
-| `udon-request-serialization` | `RequestSerialization()` |
-| `udon-get-players` | Non-allocating iterate-all-players pattern |
-| `udon-local-player` | `Networking.LocalPlayer` assignment |
-| `udon-teleport` | Teleport local player to a transform |
-| `udon-locomotion` | Set walk/run/jump/gravity |
-| `udon-voice` | Set all voice properties |
-| `udon-tracking-data` | Get head/hand/origin tracking data |
-| `udon-input-jump` | `InputJump` override |
-| `udon-input-use` | `InputUse` override |
-| `udon-input-axis` | `InputMoveHorizontal` + `InputMoveVertical` overrides |
-| `udon-object-pool` | `VRCObjectPool` spawn + return pattern |
-| `udon-object-sync` | `VRCObjectSync` teleport with `FlagDiscontinuity` |
-| `udon-string-load` | `VRCStringDownloader` full pattern |
-| `udon-json-parse` | `VRCJson.TryDeserializeFromJson` pattern |
-| `udon-editor-script` | Custom inspector for `UdonSharpBehaviour` |
-| `udon-recursive` | `[RecursiveMethod]` attributed method |
-| `udon-is-valid` | `Utilities.IsValid()` guard |
-| `udon-get-component-udon` | `GetComponent` for `UdonBehaviour` (non-generic) |
+| Language and API | [Overview](docs/USharp-01-udonsharp-overview.md), [VRChat API](docs/USharp-02-vrchat-api.md) |
+| Players | [Player API](docs/USharp-03-players.md) |
+| Networking | [Ownership/sync](docs/USharp-04-networking.md), [events](docs/USharp-04b-networking-events.md), [specs](docs/USharp-04c-networking-specs.md) |
+| Data and persistence | [Containers](docs/USharp-05-data-containers.md), [persistence](docs/USharp-06-persistence.md) |
+| Input and UI | [Input events](docs/USharp-07-input-events.md), [UI events](docs/USharp-08-ui-events.md) |
+| Editor and debugging | [Editor scripting](docs/USharp-09-editor-scripting.md), [debugging](docs/USharp-10-debugging.md), [debug views](docs/USharp-13-world-debug-views.md) |
+| Remote data and graphics | [External URLs](docs/USharp-11-external-urls.md), [VRCGraphics](docs/USharp-12-vrc-graphics.md) |
+| Build and low-level behavior | [Build/test](docs/USharp-14-build-test.md), [VM/assembly](docs/USharp-15-vm-assembly.md), [event order](docs/USharp-22-event-execution-order.md) |
+| World assembly | [Layers](docs/USharp-16-layers.md), [allowed components](docs/USharp-17-allowlisted-components.md), [scene components](docs/USharp-18-scene-components.md), [world setup](docs/USharp-19-world-setup.md) |
+| Other systems | [Video](docs/USharp-20-video-players.md), [MIDI](docs/USharp-21-midi.md), [items](docs/USharp-23-items.md) |
 
----
+## Reuse deliberately
 
-## Key Rules the AI Will Know
+1. Read the destination project's instructions and choose only the relevant
+   references. Put them in a documentation location that project actually uses,
+   retaining their provenance and links. Do not import duplicate VIP runtime
+   types into a world just to make notes available.
+2. Point the assistant at those documents explicitly. If adopting Copilot
+   instructions, merge relevant guidance into the destination's supported
+   instruction location without overwriting its existing policy. Check that
+   client's current discovery behavior instead of assuming multi-root or nested
+   files are automatically merged.
+3. For VS Code workspace snippets, **convert the selected `snippets[]` entries**
+   into VS Code's native top-level object keyed by unique descriptive snippet
+   names. Each value should copy that entry's `prefix`, `body` and `description`
+   and add `"scope": "csharp"`. Omit the export-wrapper metadata and the
+   `snippets` array. Save the converted object as a `.code-snippets` file beneath
+   the destination workspace's `.vscode` folder, preserving existing snippets.
+   Copying the tracked wrapper unchanged does not install those prefixes. Follow
+   [VS Code's snippet format](https://code.visualstudio.com/docs/editing/userdefinedsnippets).
+   Review the generated code first; do not overwrite user-wide files/settings.
+4. In a C# file, request the desired prefix from completion. Examples include
+   `udon-behaviour`, `udon-behaviour-manual`, `udon-behaviour-continuous`,
+   `udon-interact`, `udon-input-use`, `udon-get-players`, `udon-string-load`,
+   `udon-network-callable-params`, `udon-ownership-request`, and
+   `udon-get-component-udon`. Inspect the JSON for the complete prefix list.
+5. Compile the resulting script with the destination project's installed
+   UdonSharp, then test its intended behavior. Expanding a snippet or parsing C#
+   does not prove Udon API exposure, network correctness or VR usability.
 
-- No `List<T>` or `Dictionary<T>` — use `[]` arrays only
-- Never `SetOwner` then immediately set synced variables — wait for `OnOwnershipTransferred`
-- Never teleport in `OnDeserialization` — delay by 1 frame
-- `VRCInstantiate` is local only — use `VRCObjectPool` for networked spawning
-- Network event methods must be `public` and not start with `_`
-- Struct methods like `.Normalize()` don't modify in-place — use return value
-- Cache `GetComponent<T>()` in `Start()`, never in `Update()`
-- Udon runs 200–1000× slower than C# — keep logic out of `Update()`
+No install, hook registration, global configuration write, semantic extraction,
+Unity launch or dependency upgrade is required merely to read these references.
+If a client needs a packaged skill or MCP server, treat that as a separate setup
+task with its actual manifest and connection requirements.
 
----
+## Maintain and validate references
 
-## Source Reference URLs
+When updating a topic, record the official source URL, checked date and relevant
+installed SDK/version. Correct the owning topic and affected snippets together;
+keep platform facts separate from product choices. Follow the local-only versus
+shared-state and ownership distinctions in the consuming project's contract.
 
-All content is derived from the official documentation:
+Check relative links against the real tracked names and review code examples
+against the installed API exposure tree. Snippets have placeholders and are
+templates, not an automated test suite. This documentation round checked
+inventory, links and source alignment only; no claim that every reference
+example compiles or that all 41 snippets were exercised is made.
 
-- https://udonsharp.docs.vrchat.com/
-- https://udonsharp.docs.vrchat.com/vrchat-api
-- https://udonsharp.docs.vrchat.com/udonsharp
-- https://udonsharp.docs.vrchat.com/editor-scripting
-- https://udonsharp.docs.vrchat.com/examples
-- https://udonsharp.docs.vrchat.com/random-tips-&-performance-pointers
-- https://udonsharp.docs.vrchat.com/networking-tips-&-tricks
-- https://udonsharp.docs.vrchat.com/exporting-to-assembly-files
-- https://creators.vrchat.com/worlds/udon/udonsharp/
-- https://creators.vrchat.com/worlds/udon/udonsharp/attributes
-- https://creators.vrchat.com/worlds/udon/udonsharp/performance-tips
-- https://creators.vrchat.com/worlds/udon/players/
-- https://creators.vrchat.com/worlds/udon/players/getting-players
-- https://creators.vrchat.com/worlds/udon/players/player-audio
-- https://creators.vrchat.com/worlds/udon/players/player-forces
-- https://creators.vrchat.com/worlds/udon/players/player-positions
-- https://creators.vrchat.com/worlds/udon/players/player-avatar-scaling
-- https://creators.vrchat.com/worlds/udon/players/player-collisions
-- https://creators.vrchat.com/worlds/udon/event-execution-order
-- https://creators.vrchat.com/worlds/udon/debugging-udon-projects
-- https://creators.vrchat.com/worlds/udon/data-containers/
-- https://creators.vrchat.com/worlds/udon/data-containers/data-dictionaries/
-- https://creators.vrchat.com/worlds/udon/data-containers/data-lists/
-- https://creators.vrchat.com/worlds/udon/data-containers/data-tokens/
-- https://creators.vrchat.com/worlds/udon/data-containers/vrcjson
-- https://creators.vrchat.com/worlds/udon/data-containers/byte-and-bit-operations/
-- https://creators.vrchat.com/worlds/udon/external-urls
-- https://creators.vrchat.com/worlds/udon/image-loading
-- https://creators.vrchat.com/worlds/udon/input-events
-- https://creators.vrchat.com/worlds/udon/persistence/
-- https://creators.vrchat.com/worlds/udon/persistence/player-data
-- https://creators.vrchat.com/worlds/udon/persistence/player-object
-- https://creators.vrchat.com/worlds/udon/string-loading
-- https://creators.vrchat.com/worlds/udon/ui-events
-- https://creators.vrchat.com/worlds/udon/video-players/
-- https://creators.vrchat.com/worlds/udon/midi/
-- https://creators.vrchat.com/worlds/udon/midi/realtime-midi
-- https://creators.vrchat.com/worlds/udon/midi/midi-playback
-- https://creators.vrchat.com/worlds/components/
-- https://creators.vrchat.com/worlds/components/vrc_scenedescriptor
-- https://creators.vrchat.com/worlds/components/vrc_objectsync
-- https://creators.vrchat.com/worlds/components/vrc_pickup
-- https://creators.vrchat.com/worlds/components/vrc_station
-- https://creators.vrchat.com/worlds/components/vrc_mirrorreflection
-- https://creators.vrchat.com/worlds/components/vrc_spatialaudiosource
-- https://creators.vrchat.com/worlds/components/vrc_avatarpedestal
-- https://creators.vrchat.com/worlds/components/vrc_uishape
-- https://creators.vrchat.com/worlds/components/vrc_portalmarker
-- https://creators.vrchat.com/worlds/creating-your-first-world
-- https://creators.vrchat.com/worlds/sdk-prefabs
-- https://creators.vrchat.com/worlds/supported-assets
-- https://creators.vrchat.com/worlds/submitting-a-world-to-be-made-public
-- https://creators.vrchat.com/worlds/clientsim/
-- https://creators.vrchat.com/worlds/items
+The legacy VIP asset's current import/runtime gaps, license conflict and
+acceptance tests are in [MAINTENANCE.md](MAINTENANCE.md). Its historical test
+report is not evidence for another project using these notes.
