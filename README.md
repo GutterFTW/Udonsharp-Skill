@@ -1,5 +1,12 @@
 # VIP Manager
 
+This repository also bundles an UdonSharp reference library; it is not a
+standalone Unity project or a packaged agent skill. Start with
+[MAINTENANCE.md](MAINTENANCE.md) for source navigation, setup prerequisites,
+known implementation gaps and the current acceptance ledger. The existing
+[CONTRACT.md](CONTRACT.md) remains the integration/product authority; source
+inspection and historical test claims do not establish runtime acceptance.
+
 VRChat world asset for **VIP area access** and **DJ booth access**, built with [UdonSharp](https://udonsharp.docs.vrchat.com/). World builders configure role-based whitelists (loaded from Pastebin URLs), an in-world admin UI, and local barrier objects that open or close per player.
 
 ---
@@ -73,7 +80,11 @@ Barriers should start **active** in the scene. The manager toggles them locally 
 
 ### 4. Add the UI
 
-Drop in `VIP UI.prefab`, or create your own with `VipWhitelistUI`:
+Inspect `VIP UI.prefab` in an isolated import, or create your own with `VipWhitelistUI`.
+This snapshot has no tracked Unity `.meta` files or Udon program assets, so the
+reference prefabs/scene are **not a verified clean-import package**. Resolve
+script/program/GUID references before treating a prefab as usable; see
+[the setup and import blocker](MAINTENANCE.md#establish-a-usable-development-environment).
 
 - Assign `contentRoot` (scroll content transform)
 - Assign `rowTemplate` (prefab with `VipWhitelistRow`)
@@ -239,21 +250,19 @@ Ownership is taken on edits; changes serialize with a 10-frame throttle and clog
 
 ## License
 
-Commercial asset for distribution via Gumroad, Booth, or similar platforms.
-
-**Grant:** The purchasing VRChat user may use VIP Manager in **all worlds they publish** on VRChat.
-
-**Restrictions:**
-
-- No redistribution of source files or compiled assets to third parties.
-- No resale or sublicensing.
-- One license per purchasing VRChat account unless otherwise stated at point of sale.
-
-Contact the seller for team or multi-creator licensing terms.
+The tracked [LICENSE.txt](LICENSE.txt) contains an MIT template with unfilled
+copyright ownership fields. Earlier README text asserted commercial distribution
+restrictions that conflicted with it. This documentation round does not change
+the license or choose new terms. The owner must reconcile the intended terms and
+attribution before distributing a release; see UD-10 in
+[MAINTENANCE.md](MAINTENANCE.md#known-implementation-and-delivery-gaps).
 
 ---
 
 ## See Also
+
+- [MAINTENANCE.md](MAINTENANCE.md) - Source map, environment, gaps, maintenance and acceptance
+- [USharp-README.md](USharp-README.md) - Reuse the tracked reference documents and snippets
 
 - [CONTRACT.md](CONTRACT.md) — Integration contract for other world scripts
 - [DEFINITIONS.md](DEFINITIONS.md) — Component and data definitions
